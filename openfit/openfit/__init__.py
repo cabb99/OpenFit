@@ -1,4 +1,4 @@
-from .mdfit import MDFit
+from .openfit import Fit
 from .polytopes import generate_rotations
 
-__all__ = ['MDFit', 'generate_rotations']
+__all__ = ['Fit', 'generate_rotations']

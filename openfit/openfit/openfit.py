@@ -6,7 +6,7 @@ from pathlib import Path
 import logging
 
 
-class MDFit:
+class Fit:
     def __init__(self, experimental_map, voxel_size=None, origin=None, dtype=np.float64):
         self.dtype=dtype
         
@@ -665,7 +665,7 @@ if __name__=='__main__':
     sigma=np.ones(coordinates.shape)
     epsilon=np.ones(coordinates.shape[0])
     experimental_map=np.random.rand(nz,ny,nx)
-    self=MDFit(experimental_map,voxel_size=[1,1,1])
+    self=Fit(experimental_map,voxel_size=[1,1,1])
     self.set_coordinates(coordinates,sigma,epsilon)
     #r1=self.dcorr_coef()
     #r2=self.dcorr_coef_numerical()

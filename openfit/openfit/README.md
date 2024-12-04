@@ -21,12 +21,12 @@ This project implements a molecular density fitting approach that tries to optim
 ## Usage
 
 ### Quick Start
-Here's a quick example to get started with the `MDFit` class:
+Here's a quick example to get started with the `Fit` class:
 
 #### Fit particles without a forcefield
 ```python
 import numpy as np
-from coarseactin import MDFit
+from openfit import Fit
 
 # Define your parameters: coordinates, sigma, experimental_map, and voxel_size
 coordinates = np.array([...])  # Particle coordinates(n,3)
@@ -34,8 +34,8 @@ sigma = np.array([...])        # Standard deviation (n,3)
 density_map = np.array([...])  # Density map
 voxel_size = [1, 1, 1]         # Voxel size
 
-# Initialize the MDFit object
-md_fit = MDFit(density_map, voxel_size)
+# Initialize the Fit object
+md_fit = Fit(density_map, voxel_size)
 
 #Calculate the derivative of the correlation over the coordinates and sigma
 diff = md_fit.dcorr_coef(coordinates, sigma)
@@ -51,11 +51,11 @@ optimized_sigma = md_fit.sigma
 #### Build a simulated map from coordinates
 
 ```python
-import coarseactin
+import openfit
 import numpy as np
 
 #Parse the pdb
-scene = coarseactin.Scene.from_pdb('pdb_file.pdb')
+scene = openfit.Scene.from_pdb('pdb_file.pdb')
 
 #Corrects missing element names
 scene['element']=scene['name'].str[0]
@@ -64,15 +64,15 @@ scene['mass']=scene['element'].replace({'N':14, 'C':12, 'O':16, 'S':32})
 #Creates an empty voxel array
 coords=scene.get_coordinates()
 voxel_size=(coords.max()-coords.min())/40 #~40x40x40
-mdfit=coarseactin.MDFit.from_dimensions(min_coords=coords.min()-10,max_coords=coords.max()+10,voxel_size=voxel_size))
+Fit=openfit.Fit.from_dimensions(min_coords=coords.min()-10,max_coords=coords.max()+10,voxel_size=voxel_size))
 
 #Sets the coordinates
-mdfit.set_coordinates(coords.values(),
+Fit.set_coordinates(coords.values(),
                       sigma=np.ones(coords.shape)*2,
                       epsilon=scene['mass'].values)
 
 #Saves the density map
-mdfit.save_mrc('sample_map.mrc')
+Fit.save_mrc('sample_map.mrc')
 ```
 
 ## Derivation
