@@ -1,8 +1,8 @@
 OpenFit
 ==============================
 [//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/openfit/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/openfit/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/OpenFit/branch/main/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/OpenFit/branch/main)
+[![GitHub Actions Build Status](https://github.com/cabb99/openfit/workflows/CI/badge.svg)](https://github.com/cabb99/openfit/actions?query=workflow%3ACI)
+[![codecov](https://codecov.io/gh/cabb99/OpenFit/branch/main/graph/badge.svg)](https://codecov.io/gh/cabb99/OpenFit/branch/main)
 
 
 Molecular Density Fitting Using 3D Gaussian Functions
