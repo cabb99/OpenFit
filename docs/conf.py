@@ -23,8 +23,8 @@ import openfit
 # -- Project information -----------------------------------------------------
 
 project = 'OpenFit'
-copyright = ("2024, Carlos Bueno. Project structure based on the "
-             "Computational Molecular Science Python Cookiecutter version 1.10")
+copyright = ("2026, Carlos Bueno. Project structure based on the "
+             "Computational Molecular Science Python Cookiecutter version 1.11")
 author = 'Carlos Bueno'
 
 # The short X.Y version

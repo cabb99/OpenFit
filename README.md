@@ -9,10 +9,10 @@ Molecular Density Fitting Using 3D Gaussian Functions
 
 ### Copyright
 
-Copyright (c) 2024, Carlos Bueno
+Copyright (c) 2026, Carlos Bueno
 
 
 #### Acknowledgements
  
 Project based on the 
-[Computational Molecular Science Python Cookiecutter](https://github.com/molssi/cookiecutter-cms) version 1.10.
+[Computational Molecular Science Python Cookiecutter](https://github.com/molssi/cookiecutter-cms) version 1.11.
