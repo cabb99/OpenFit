@@ -16,22 +16,60 @@ license = "MIT"
 license-files = ["LICENSE"]
 # See https://pypi.org/classifiers/
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
 ]
-requires-python = ">=3.8"
-# Declare any run-time dependencies that should be installed with the package.
-#dependencies = [
-#    "importlib-resources;python_version<'3.10'",
-#]
+requires-python = ">=3.10"
+# Run-time dependencies. The core fitting code always imports these.
+# Heavier, situational dependencies are kept lazy-imported and declared as
+# optional extras below, so the core install stays lightweight.
+dependencies = [
+    "numpy",
+    "scipy",
+    "numba",
+]
 
-# Update the urls once the hosting is set up.
-#[project.urls]
-#"Source" = "https://github.com/<username>/openfit/"
-#"Documentation" = "https://openfit.readthedocs.io/"
+[project.urls]
+"Source" = "https://github.com/cabb99/OpenFit"
+"Documentation" = "https://openfit.readthedocs.io/"
 
 [project.optional-dependencies]
+# OpenMM molecular dynamics integration (add_force / update_force).
+openmm = [
+  "openmm",
+]
+# Reading/writing density maps and trajectories.
+io = [
+  "mrcfile",
+  "mdtraj",
+]
+# PDB/CIF/GRO parsing and the Scene-based workflow.
+# MolScene is not on PyPI/conda yet, so install it from GitHub for now.
+pdb = [
+  "molscene @ git+https://github.com/cabb99/molscene",
+]
+# Plotting helpers
+viz = [
+  "matplotlib",
+]
+# Everything needed for the full feature set.
+all = [
+  "openmm",
+  "mrcfile",
+  "mdtraj",
+  "molscene @ git+https://github.com/cabb99/molscene",
+  "matplotlib",
+]
 test = [
   "pytest>=6.1.2",
+  "pytest-cov",
 ]
 
 [tool.setuptools]
