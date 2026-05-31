@@ -92,7 +92,9 @@ class Fit:
         data_description = [f"Data generated on {current_date}", "Simulated density map."]
 
         if experimental:
-            map_data = self.experimental_map
+            # Copy so that the in-place denormalization below does not corrupt
+            # the stored (normalized) experimental map.
+            map_data = self.experimental_map.copy()
         else:
             map_data = self.simulation_map()
             if rescale:
@@ -135,7 +137,7 @@ class Fit:
             mrc.update_header_stats()
             mrc.flush()
 
-    def compute_forces(topology_file, trajectory_file, output_file=None, overwrite=False):
+    def compute_forces(self, topology_file, trajectory_file, output_file=None, overwrite=False):
         import mdtraj
         topology= mdtraj.load(topology_file)
         trajectory=mdtraj.load(trajectory_file, top=topology)
