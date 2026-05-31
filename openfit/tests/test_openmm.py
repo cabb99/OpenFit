@@ -62,7 +62,7 @@ def test_update_force_pushes_gradient_into_context():
     integrator = openmm.VerletIntegrator(1.0)
     platform = openmm.Platform.getPlatformByName("Reference")
     context = openmm.Context(system, integrator, platform)
-    positions = (np.random.default_rng(1).random((n, 3)) * 0.5)  # nm
+    positions = np.random.default_rng(1).random((n, 3)) * 0.5  # nm
     context.setPositions(positions)
 
     sim = _ContextSim(context)

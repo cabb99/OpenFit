@@ -5,7 +5,6 @@ import pytest
 
 from openfit import Fit
 
-
 # A small, deterministic system. These dimensions mirror the historical
 # ``Fit.test()`` / ``__main__`` sanity check, which is known to pass the
 # analytical-vs-numerical derivative comparisons at the tolerances used below.

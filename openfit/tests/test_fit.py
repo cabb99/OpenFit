@@ -11,8 +11,8 @@ import pytest
 
 from openfit import Fit
 
-
 # --- Simulated map -------------------------------------------------------
+
 
 def test_sim_map_matches_numpy(small_fit):
     """The Numba ``sim_map`` kernel matches the pure-NumPy reference."""
@@ -30,6 +30,7 @@ def test_simulation_map_shape(small_fit):
 
 # --- Derivatives of the simulated map ------------------------------------
 
+
 @pytest.mark.parametrize("axis", ["dx", "dy", "dz"])
 def test_dsim_map_matches_numerical(small_fit, axis):
     """Analytical d(sim_map)/d(coord) matches finite differences."""
@@ -39,6 +40,7 @@ def test_dsim_map_matches_numerical(small_fit, axis):
 
 
 # --- Correlation-coefficient gradient ------------------------------------
+
 
 def test_dcorr_coef_analytical_vs_numerical(small_fit):
     """Numba ``dcorr_v3`` coordinate gradient matches finite differences."""
@@ -76,6 +78,7 @@ def test_dcorr_coef_v3_vs_numpy_sigma(small_fit):
 
 # --- Correlation coefficient ---------------------------------------------
 
+
 def test_corr_coef_self_is_one():
     """Fitting a map against the density that produced it gives cc ~= 1."""
     nx, ny, nz = 30, 25, 20
@@ -102,6 +105,7 @@ def test_corr_coef_in_range(small_fit):
 
 # --- Constructors --------------------------------------------------------
 
+
 def test_from_dimensions_shape_and_voxel():
     """``from_dimensions`` produces a map covering the requested bounds."""
     fit = Fit.from_dimensions(
@@ -116,6 +120,7 @@ def test_from_dimensions_shape_and_voxel():
 
 
 # --- Input validation ----------------------------------------------------
+
 
 def test_constructor_rejects_non_3d_map():
     with pytest.raises(ValueError):
@@ -143,6 +148,7 @@ def test_set_coordinates_rejects_bad_epsilon_shape(small_fit):
 
 
 # --- MRC round-trip ------------------------------------------------------
+
 
 def test_mrc_roundtrip(small_fit, tmp_path):
     """Saving and reloading the experimental map preserves it."""
