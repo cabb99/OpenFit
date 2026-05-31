@@ -1,6 +1,6 @@
 # OpenFit
 
-[![GitHub Actions Build Status](https://github.com/cabb99/openfit/workflows/CI/badge.svg)](https://github.com/cabb99/openfit/actions?query=workflow%3ACI)
+[![GitHub Actions Build Status](https://github.com/cabb99/OpenFit/actions/workflows/CI.yaml/badge.svg)](https://github.com/cabb99/OpenFit/actions/workflows/CI.yaml)
 [![codecov](https://codecov.io/gh/cabb99/OpenFit/branch/main/graph/badge.svg)](https://codecov.io/gh/cabb99/OpenFit/branch/main)
 
 Molecular Density Fitting Using 3D Gaussian Functions

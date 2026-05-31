@@ -1,18 +1,33 @@
 name: test
 channels:
-
-  - defaults
+  - conda-forge
 dependencies:
-    # Base depends
+    # Base
   - python
   - pip
+
+    # Core run-time dependencies
+  - numpy
+  - scipy
+  - numba
+
+    # Optional features exercised by the test suite
+  - openmm
+  - mrcfile
+  - mdtraj
+  - matplotlib
 
     # Testing
   - pytest
   - pytest-cov
-  - codecov
+
+    # Linting / formatting (also run by the CI lint job and pre-commit)
+  - flake8
+  - black
 
     # Pip-only installs
+  # MolScene powers the PDB/Scene workflow. It is not on conda/PyPI yet, so it
+  # is installed from GitHub. Kept commented so CI stays green until MolScene's
+  # packaging is published/fixed; the matching tests skip when it is absent.
   #- pip:
-  #  - codecov
-
+  #  - git+https://github.com/cabb99/molscene
