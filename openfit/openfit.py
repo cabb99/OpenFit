@@ -7,6 +7,38 @@ import logging
 
 
 class Fit:
+    """Fit a set of particles to a 3D density map using anisotropic Gaussians.
+
+    Each particle is represented by an anisotropic 3D Gaussian. The class
+    computes the simulated density on the experimental grid, its correlation
+    with the experimental map, and the analytical gradient of that correlation
+    with respect to the particle coordinates and Gaussian widths. The gradient
+    can drive a direct optimization (:meth:`fit`) or be injected as a force into
+    an OpenMM simulation (:meth:`add_force` / :meth:`update_force`).
+
+    Parameters
+    ----------
+    experimental_map : numpy.ndarray
+        The experimental density, a 3D array in ``(z, y, x)`` order. Stored
+        normalized to zero mean and unit standard deviation.
+    voxel_size : array-like of float, optional
+        Edge length of a voxel along ``(x, y, z)`` in Angstrom. Defaults to
+        ``(1, 1, 1)``.
+    origin : array-like of float, optional
+        World coordinate of the first voxel's corner. Defaults to ``(0, 0, 0)``.
+    dtype : numpy dtype, optional
+        Floating-point precision used internally. Defaults to ``numpy.float64``.
+
+    Attributes
+    ----------
+    coordinates : numpy.ndarray
+        Particle coordinates in the internal grid frame, shape ``(n, 3)``.
+    sigma : numpy.ndarray
+        Per-particle anisotropic Gaussian widths, shape ``(n, 3)``.
+    epsilon : numpy.ndarray
+        Per-particle weights (e.g. atomic mass), shape ``(n,)``.
+    """
+
     def __init__(self, experimental_map, voxel_size=None, origin=None, dtype=np.float64):
         self.dtype = dtype
 
@@ -58,8 +90,33 @@ class Fit:
         else:
             logging.warning("The experimental map is uniform. The standard deviation is zero.")
 
+    def __repr__(self):
+        n = 0 if self.coordinates is None else len(self.coordinates)
+        return (
+            f"Fit(n_voxels={tuple(int(x) for x in self.n_voxels)}, "
+            f"voxel_size={tuple(float(x) for x in self.voxel_size)}, particles={n})"
+        )
+
     @classmethod
     def from_mrc(cls, mrc_file, cutoff_min=None, cutoff_max=None, dtype=np.float64):
+        """Create a :class:`Fit` from an MRC/CCP4 density file.
+
+        Voxel size and origin are read from the file header.
+
+        Parameters
+        ----------
+        mrc_file : str or path-like
+            Path to the MRC/CCP4 map.
+        cutoff_min, cutoff_max : float, optional
+            If given, clamp densities below ``cutoff_min`` to 0 and above
+            ``cutoff_max`` to ``cutoff_max`` before normalization.
+        dtype : numpy dtype, optional
+            Internal precision.
+
+        Returns
+        -------
+        Fit
+        """
         import mrcfile
 
         with mrcfile.open(mrc_file) as mrc:
@@ -80,6 +137,24 @@ class Fit:
 
     @classmethod
     def from_dimensions(cls, min_coords, max_coords, voxel_size, dtype=np.float64):
+        """Create an empty-grid :class:`Fit` covering a coordinate box.
+
+        Useful when there is no experimental map yet and you only need a grid to
+        rasterize a structure onto (e.g. to generate a synthetic density).
+
+        Parameters
+        ----------
+        min_coords, max_coords : array-like of float
+            Lower and upper ``(x, y, z)`` bounds, in Angstrom.
+        voxel_size : array-like of float
+            Voxel edge lengths ``(x, y, z)``.
+        dtype : numpy dtype, optional
+            Internal precision.
+
+        Returns
+        -------
+        Fit
+        """
         min_coords = np.asarray(min_coords, dtype=dtype)
         max_coords = np.asarray(max_coords, dtype=dtype)
         voxel_size = np.asarray(voxel_size, dtype=dtype)
@@ -88,7 +163,67 @@ class Fit:
         origin = (min_coords + max_coords) / 2 - voxel_size * n_voxels / 2 + voxel_size / 2
         return cls(np.empty(n_voxels[::-1], dtype=dtype), voxel_size=voxel_size, origin=origin)
 
+    @classmethod
+    def from_scene(cls, scene, voxel_size=(2.0, 2.0, 2.0), padding=10.0, sigma=2.0, epsilon="mass", dtype=np.float64):
+        """Create a :class:`Fit` from a `MolScene <https://github.com/cabb99/molscene>`_ ``Scene``.
+
+        Builds an empty grid sized to enclose the structure (plus ``padding``),
+        and sets the particle coordinates, widths and weights from the scene.
+        The particle weights default to the atomic masses.
+
+        Parameters
+        ----------
+        scene : molscene.Scene
+            A parsed structure (e.g. ``molscene.Scene.from_pdb(...)``).
+        voxel_size : array-like of float, optional
+            Voxel edge lengths ``(x, y, z)``. Defaults to ``(2, 2, 2)``.
+        padding : float, optional
+            Angstrom of empty space added around the structure's bounding box.
+        sigma : float or array-like, optional
+            Gaussian width; a scalar is broadcast to all particles as ``(n, 3)``.
+        epsilon : {"mass"}, None or array-like, optional
+            Per-particle weight. ``"mass"`` (default) uses ``scene.compute_mass()``;
+            ``None`` uses ones; otherwise an explicit ``(n,)`` array.
+        dtype : numpy dtype, optional
+            Internal precision.
+
+        Returns
+        -------
+        Fit
+        """
+        coords = np.asarray(scene.get_coordinates().to_numpy(), dtype=dtype)
+        if isinstance(epsilon, str) and epsilon == "mass":
+            weights = np.asarray(scene.compute_mass()["mass"].to_numpy(), dtype=dtype)
+        elif epsilon is None:
+            weights = np.ones(len(coords), dtype=dtype)
+        else:
+            weights = np.asarray(epsilon, dtype=dtype)
+
+        voxel_size = np.asarray(voxel_size, dtype=dtype)
+        fit = cls.from_dimensions(coords.min(0) - padding, coords.max(0) + padding, voxel_size, dtype=dtype)
+
+        if np.isscalar(sigma):
+            widths = np.full((len(coords), 3), sigma, dtype=dtype)
+        else:
+            widths = np.asarray(sigma, dtype=dtype)
+        fit.set_coordinates(coords, sigma=widths, epsilon=weights)
+        return fit
+
     def save_mrc(self, mrc_file, experimental=False, rescale=True):
+        """Write a density map to an MRC file.
+
+        Parameters
+        ----------
+        mrc_file : str or path-like
+            Output path (overwritten if it exists).
+        experimental : bool, optional
+            If True, write the (denormalized) experimental map; otherwise write
+            the simulated map. Default False.
+        rescale : bool, optional
+            For the simulated map, rescale to its own mean/std before applying
+            the experimental scale (True) or apply the experimental scale
+            directly (False).
+        """
         import mrcfile
         import datetime
 
@@ -166,6 +301,22 @@ class Fit:
                     )
 
     def add_force(self, system):
+        """Add the density-fitting force to an OpenMM ``System``.
+
+        Registers a ``CustomCompoundBondForce`` whose per-particle force is read
+        from a tabulated function; refresh it during the simulation with
+        :meth:`update_force`. The force is stored on ``self.force``.
+
+        Parameters
+        ----------
+        system : openmm.System
+            The system to add the force to. Must already contain the particles.
+
+        Returns
+        -------
+        openmm.CustomCompoundBondForce
+            The force that was added.
+        """
         import openmm
 
         n_particles = system.getNumParticles()
@@ -183,6 +334,14 @@ class Fit:
         return force
 
     def periodic_vectors(self):
+        """Periodic box vectors matching the map extent, in nanometres.
+
+        Returns
+        -------
+        tuple of list of float
+            The three box vectors suitable for
+            ``System.setDefaultPeriodicBoxVectors``.
+        """
         return (
             [self.voxel_size[0] * self.n_voxels[0] / 10, 0, 0],
             [0, self.voxel_size[1] * self.n_voxels[1] / 10, 0],
@@ -198,6 +357,31 @@ class Fit:
         self.set_coordinates(coordinates)
 
     def update_force(self, simulation, update_coordinates=True, k=3200, force=None, force_array=None):
+        """Refresh the fitting force from the current simulation state.
+
+        Reads the current positions (unless ``update_coordinates`` is False),
+        recomputes the correlation gradient scaled by ``k``, writes it into the
+        tabulated function, and pushes it to the OpenMM ``Context`` without a
+        rebuild.
+
+        Parameters
+        ----------
+        simulation : openmm.app.Simulation
+            The running simulation (only ``simulation.context`` is used).
+        update_coordinates : bool, optional
+            Re-read positions from the context before computing the gradient.
+        k : float, optional
+            Force constant scaling the correlation gradient.
+        force : openmm.Force, optional
+            Force to update; defaults to the one created by :meth:`add_force`.
+        force_array : numpy.ndarray, optional
+            Explicit ``(n, 3)`` force values to use instead of the computed gradient.
+
+        Returns
+        -------
+        numpy.ndarray
+            The ``(n, 3)`` force array written to the context.
+        """
         if update_coordinates:
             self.update_coordinates(simulation)
         if force is None:
@@ -212,6 +396,25 @@ class Fit:
         return force_array
 
     def set_coordinates(self, coordinates, sigma=None, epsilon=None):
+        """Set the particle coordinates and (optionally) widths and weights.
+
+        ``sigma`` and ``epsilon`` are remembered between calls, so passing only
+        ``coordinates`` reuses the previously set values.
+
+        Parameters
+        ----------
+        coordinates : array-like, shape (n, 3)
+            Particle coordinates in Angstrom (world frame; shifted internally).
+        sigma : array-like, shape (n, 3), optional
+            Anisotropic Gaussian widths. Defaults to ones on first call.
+        epsilon : array-like, shape (n,), optional
+            Per-particle weights. Defaults to ones on first call.
+
+        Raises
+        ------
+        ValueError
+            If any of the input shapes are inconsistent.
+        """
         coordinates = np.asarray(coordinates, dtype=self.dtype)
         if sigma is not None:
             sigma = np.asarray(sigma, dtype=self.dtype)
@@ -278,6 +481,19 @@ class Fit:
         return vp
 
     def simulation_map(self, normalize=False):
+        """Compute the simulated density on the experimental grid.
+
+        Parameters
+        ----------
+        normalize : bool, optional
+            If True, return the map normalized to zero mean and unit standard
+            deviation.
+
+        Returns
+        -------
+        numpy.ndarray
+            The simulated density, same shape as ``experimental_map``.
+        """
         sim = sim_map(self.coordinates, self.n_voxels, self.voxel_size, self.sigma, self.epsilon, self.padding, 5)
         if normalize:
             sim_map_mean = sim.mean()
@@ -306,6 +522,13 @@ class Fit:
         return self.fold_padding(smap)
 
     def corr_coef(self):
+        """Cross-correlation between the simulated and experimental densities.
+
+        Returns
+        -------
+        float
+            The correlation coefficient in ``[-1, 1]`` (1 is a perfect match).
+        """
         simulation_map = self.simulation_map()
         sim_map_mean = simulation_map.mean()
         sim_map_std = simulation_map.std()
@@ -351,23 +574,59 @@ class Fit:
 
         return num_derivatives
 
-    def fit(self, numerical=False):
-        f = 1
-        for i in range(1000):
-            if numerical:
-                dx = self.dcorr_coef_numerical()
-            else:
-                dx = self.dcorr_coef()
-            dx = dx[:, :3]
-            f = 0.1 / np.abs(dx).max()
-            self.coordinates = self.coordinates + f * dx
-            for j in range(3):
-                self.coordinates[:, j][self.coordinates[:, j] < 0] += self.voxel_size[j] * self.n_voxels[j]
-                self.coordinates[:, j][self.coordinates[:, j] >= self.voxel_size[j] * self.n_voxels[j]] -= (
-                    self.voxel_size[j] * self.n_voxels[j]
-                )
-            if i % 10 == 0:
-                print(i, self.corr_coef())
+    def fit(self, n_iter=1000, learning_rate=0.1, tol=1e-5, numerical=False, verbose=True):
+        """Maximize the correlation coefficient by gradient ascent on coordinates.
+
+        At each iteration the coordinate gradient of the correlation is computed
+        and a step of size ``learning_rate / max(|grad|)`` is taken; coordinates
+        are wrapped into the periodic box. Progress is reported via ``logging``
+        (enable INFO-level logging to see it).
+
+        Parameters
+        ----------
+        n_iter : int, optional
+            Maximum number of iterations. Default 1000.
+        learning_rate : float, optional
+            Step scale; the actual step is ``learning_rate / max(|grad|)``.
+        tol : float, optional
+            Stop early when the change in correlation between iterations drops
+            below this value. Set to 0 to always run ``n_iter`` iterations.
+        numerical : bool, optional
+            Use finite-difference gradients instead of the analytical ones
+            (much slower; for debugging).
+        verbose : bool, optional
+            Log the correlation every 10 iterations and on convergence.
+
+        Returns
+        -------
+        dict
+            ``{"correlation", "n_iter", "converged", "history"}`` where
+            ``history`` is the per-iteration correlation as an array.
+        """
+        box = self.voxel_size * self.n_voxels
+        cc = self.corr_coef()
+        history = [cc]
+        converged = False
+        i = 0
+        for i in range(n_iter):
+            dx = (self.dcorr_coef_numerical() if numerical else self.dcorr_coef())[:, :3]
+            max_grad = np.abs(dx).max()
+            if max_grad == 0:
+                logging.info("fit: zero gradient at iteration %d; stopping.", i)
+                break
+            self.coordinates = np.mod(self.coordinates + (learning_rate / max_grad) * dx, box)
+            new_cc = self.corr_coef()
+            history.append(new_cc)
+            if verbose and i % 10 == 0:
+                logging.info("fit: iteration %d, cc = %.4f", i, new_cc)
+            if abs(new_cc - cc) < tol:
+                converged = True
+                cc = new_cc
+                if verbose:
+                    logging.info("fit: converged at iteration %d (|dcc| < %g), cc = %.4f", i, tol, cc)
+                break
+            cc = new_cc
+        return {"correlation": cc, "n_iter": i + 1, "converged": converged, "history": np.asarray(history)}
 
     def dsim_map_numerical(self, delta=1e-5):
         num_particles = self.coordinates.shape[0]
@@ -465,6 +724,15 @@ class Fit:
         return (num1 - cc * num2) / sim_raw_std
 
     def dcorr_coef(self):
+        """Analytical gradient of the correlation coefficient.
+
+        Returns
+        -------
+        numpy.ndarray, shape (n, 7)
+            Per-particle derivatives of the correlation with respect to
+            ``(x, y, z, sigma_x, sigma_y, sigma_z, epsilon)``. Columns ``0:3``
+            are the coordinate gradient used to drive the fit/force.
+        """
         return dcorr_v3(
             self.coordinates,
             self.n_voxels,

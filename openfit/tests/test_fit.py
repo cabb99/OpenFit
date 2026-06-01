@@ -103,6 +103,63 @@ def test_corr_coef_in_range(small_fit):
     assert -1.0 <= cc <= 1.0
 
 
+# --- fit() optimization loop ---------------------------------------------
+
+
+def test_fit_improves_and_returns_history():
+    """fit() raises the correlation and returns a convergence summary."""
+    nx, ny, nz = 30, 25, 20
+    rng = np.random.default_rng(2)
+    coords = rng.uniform(5, 15, size=(6, 3))
+    sigma = np.full((6, 3), 2.0)
+    epsilon = np.ones(6)
+
+    reference = Fit(np.zeros((nz, ny, nx)), voxel_size=[1, 1, 1])
+    reference.set_coordinates(coords, sigma, epsilon)
+    target = reference.simulation_map()
+
+    fit = Fit(target, voxel_size=[1, 1, 1])
+    fit.set_coordinates(coords + rng.normal(scale=1.0, size=(6, 3)), sigma, epsilon)
+    initial = fit.corr_coef()
+
+    result = fit.fit(n_iter=100, tol=0.0, verbose=False)
+    assert set(result) == {"correlation", "n_iter", "converged", "history"}
+    assert result["correlation"] > initial
+    assert result["history"].shape == (result["n_iter"] + 1,)
+
+
+# --- repr ----------------------------------------------------------------
+
+
+def test_repr(small_fit):
+    text = repr(small_fit)
+    assert text.startswith("Fit(")
+    assert "particles=10" in text
+
+
+# --- from_scene (MolScene bridge) ----------------------------------------
+
+
+def test_from_scene():
+    """Build a Fit from a MolScene Scene (skips if MolScene is unavailable)."""
+    molscene = pytest.importorskip("molscene")
+    pdb = (
+        "ATOM      1  N   GLY A   1      11.104   6.134   7.123  1.00  0.00           N\n"
+        "ATOM      2  CA  GLY A   1      12.560   6.087   7.220  1.00  0.00           C\n"
+        "ATOM      3  C   GLY A   1      13.000   4.700   7.660  1.00  0.00           C\n"
+        "END\n"
+    )
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".pdb", delete=False) as fh:
+        fh.write(pdb)
+        path = fh.name
+    scene = molscene.Scene.from_pdb(path)
+    fit = Fit.from_scene(scene, voxel_size=[1, 1, 1], padding=5.0)
+    assert fit.coordinates.shape == (3, 3)
+    assert np.all(np.asarray(fit.simulation_map().shape) > 0)
+
+
 # --- Constructors --------------------------------------------------------
 
 
