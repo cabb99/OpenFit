@@ -1,9 +1,6 @@
 Developer Guide
 ===============
 
-Contributions are welcome. This page describes how to set up a development
-environment and run the project's checks.
-
 Environment
 -----------
 

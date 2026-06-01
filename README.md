@@ -33,6 +33,13 @@ Available extras: `openmm` (molecular dynamics integration), `io` (`mrcfile` +
 `mdtraj`), `pdb` (the [MolScene](https://github.com/cabb99/molscene)-based
 PDB/CIF workflow), and `viz` (`matplotlib`).
 
+### Prerequisites
+
+- Python 3.6+
+- Numpy
+- SciPy
+- Numba
+
 ## Usage
 
 ### Quick Start
