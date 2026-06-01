@@ -244,9 +244,9 @@ def generate_rotations(n, optimize=0):
 
     Returns
     -------
-    rotations : Rotation
-        A scipy.spatial.transform.Rotation object representing the rotations
-        generated. Rotations are based on unit quaternions.
+    rotations : scipy.spatial.transform.Rotation
+        A Rotation object representing the rotations generated. Rotations are
+        based on unit quaternions.
     """
     # Dictionary to map numbers to specific polytope vertex generators
     polytope_generators = {

@@ -19,69 +19,74 @@ This project implements a molecular density fitting approach that optimizes the 
 
 ## Installation
 
-### Prerequisites
+OpenFit requires Python 3.10+, NumPy, SciPy and Numba.
 
-- Python 3.6+
-- Numpy
-- SciPy
-- Numba
+```bash
+# Core install
+pip install openfit
+
+# With OpenMM integration, density-map I/O, plotting, and the PDB workflow
+pip install "openfit[all]"
+```
+
+Available extras: `openmm` (molecular dynamics integration), `io` (`mrcfile` +
+`mdtraj`), `pdb` (the [MolScene](https://github.com/cabb99/molscene)-based
+PDB/CIF workflow), and `viz` (`matplotlib`).
 
 ## Usage
 
 ### Quick Start
 
-Here's a quick example to get started with the `Fit` class:
-
-#### Fit particles without a forcefield
+Build a target density from known particles, then recover their positions from a
+perturbed guess by following the analytical correlation gradient:
 
 ```python
 import numpy as np
 from openfit import Fit
 
-# Define your parameters: coordinates, sigma, experimental_map, and voxel_size
-coordinates = np.array([...])  # Particle coordinates (n, 3)
-sigma = np.array([...])        # Standard deviation (n, 3)
-density_map = np.array([...])  # Density map
-voxel_size = [1, 1, 1]         # Voxel size
+rng = np.random.default_rng(0)
+n = 6
+true_coords = rng.uniform(8, 22, size=(n, 3))
+sigma = np.full((n, 3), 2.0)
+epsilon = np.ones(n)
 
-# Initialize the Fit object
-md_fit = Fit(density_map, voxel_size)
+# Generate a synthetic "experimental" map from the ground-truth particles.
+template = Fit(np.zeros((30, 30, 30)), voxel_size=[1, 1, 1])
+template.set_coordinates(true_coords, sigma, epsilon)
+experimental = template.simulation_map()
 
-# Calculate the derivative of the correlation over the coordinates and sigma
-diff = md_fit.dcorr_coef(coordinates, sigma)
+# Fit, starting from a perturbed guess.
+fit = Fit(experimental, voxel_size=[1, 1, 1])
+fit.set_coordinates(true_coords + rng.normal(scale=1.0, size=(n, 3)), sigma, epsilon)
+print("initial cc:", fit.corr_coef())
 
-# Perform the fitting process just with the coordinates
-md_fit.fit(coordinates, sigma)
-
-# Access the optimized coordinates and sigma
-optimized_coordinates = md_fit.coordinates
-optimized_sigma = md_fit.sigma
+for _ in range(50):
+    grad = fit.dcorr_coef()[:, :3]          # d(cc)/d(x, y, z)
+    fit.coordinates += (0.1 / np.abs(grad).max()) * grad
+print("final cc:  ", fit.corr_coef())
 ```
 
-#### Build a simulated map from coordinates
+#### Build a density map from a PDB structure
+
+Using the `pdb` extra ([MolScene](https://github.com/cabb99/molscene)):
 
 ```python
-import openfit
 import numpy as np
+import molscene
+from openfit import Fit
 
-# Parse the pdb
-scene = openfit.Scene.from_pdb('pdb_file.pdb')
+scene = molscene.Scene.from_pdb('structure.pdb')
+coords = scene.get_coordinates().to_numpy()
+masses = scene.compute_mass()['mass'].to_numpy()
 
-# Corrects missing element names
-scene['element'] = scene['name'].str[0]
-scene['mass'] = scene['element'].replace({'N': 14, 'C': 12, 'O': 16, 'S': 32})
-
-# Creates an empty voxel array
-coords = scene.get_coordinates()
-voxel_size = (coords.max() - coords.min()) / 40  # ~40x40x40
-Fit = openfit.Fit.from_dimensions(min_coords=coords.min() - 10, max_coords=coords.max() + 10, voxel_size=voxel_size)
-
-# Sets the coordinates
-Fit.set_coordinates(coords.values(), sigma=np.ones(coords.shape) * 2, epsilon=scene['mass'].values)
-
-# Saves the density map
-Fit.save_mrc('sample_map.mrc')
+pad = 5.0
+fit = Fit.from_dimensions(coords.min(0) - pad, coords.max(0) + pad, voxel_size=[2, 2, 2])
+fit.set_coordinates(coords, sigma=np.full(coords.shape, 2.0), epsilon=masses)
+fit.save_mrc('structure_density.mrc')
 ```
+
+See the [`examples/`](examples/) directory for these and the OpenMM integration,
+and the [documentation](https://openfit.readthedocs.io/) for the full guide.
 
 ## Derivation
 
