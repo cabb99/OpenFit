@@ -35,16 +35,34 @@ For development, create the conda environment and install in editable mode:
     conda activate openfit_dev
     pip install -e . --no-deps
 
-Quick start
------------
+Quick start — flexible fitting in one call
+------------------------------------------
 
-Build a target density from a known set of particles, then recover their
-positions from a perturbed guess by following the correlation gradient:
+The high-level :class:`~openfit.Fit` loads a structure + a map, refines, and
+saves. With a structure-based (OpenSMOG) model:
+
+.. code-block:: python
+
+    from openfit import Fit
+
+    fit = Fit.from_smog("model.AA.gro", "model.AA.top", "model.AA.xml", "target.mrc")
+    fit.refine(steps=50_000)     # bias MD toward the density
+    print("correlation:", fit.cc)
+    fit.save("refined.pdb")
+
+See ``examples/4ake/`` for a complete, runnable flexible-fitting example.
+
+Quick start — the ``DensityMap`` engine
+----------------------------------------
+
+Without any OpenMM force field you can still score and optimize a density
+directly. Build a target from known particles, then recover their positions from
+a perturbed guess by following the correlation gradient:
 
 .. code-block:: python
 
     import numpy as np
-    from openfit import Fit
+    from openfit import DensityMap
 
     rng = np.random.default_rng(0)
     n = 6
@@ -53,20 +71,20 @@ positions from a perturbed guess by following the correlation gradient:
     epsilon = np.ones(n)
 
     # Generate a synthetic "experimental" map from the ground-truth particles.
-    template = Fit(np.zeros((30, 30, 30)), voxel_size=[1, 1, 1])
+    template = DensityMap(np.zeros((30, 30, 30)), voxel_size=[1, 1, 1])
     template.set_coordinates(true_coords, sigma, epsilon)
     experimental = template.simulation_map()
 
     # Fit, starting from a perturbed guess.
-    fit = Fit(experimental, voxel_size=[1, 1, 1])
-    fit.set_coordinates(true_coords + rng.normal(scale=1.0, size=(n, 3)), sigma, epsilon)
-    print("initial cc:", fit.corr_coef())
+    dm = DensityMap(experimental, voxel_size=[1, 1, 1])
+    dm.set_coordinates(true_coords + rng.normal(scale=1.0, size=(n, 3)), sigma, epsilon)
+    print("initial cc:", dm.correlation())
 
     for _ in range(50):
-        grad = fit.dcorr_coef()[:, :3]          # d(cc)/d(x, y, z)
-        fit.coordinates += (0.1 / np.abs(grad).max()) * grad
-    print("final cc:  ", fit.corr_coef())
+        grad = dm.gradient()[:, :3]          # d(cc)/d(x, y, z)
+        dm.coordinates += (0.1 / np.abs(grad).max()) * grad
+    print("final cc:  ", dm.correlation())
 
 This runnable script lives in ``examples/01_fit_synthetic.py``. See the
-:doc:`user_guide` for loading real maps, saving results, and the OpenMM
-integration.
+:doc:`user_guide` for loading real maps, saving results, the OpenMM integration,
+and the method's derivation.

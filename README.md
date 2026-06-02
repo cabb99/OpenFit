@@ -42,136 +42,74 @@ PDB/CIF workflow), and `viz` (`matplotlib`).
 
 ## Usage
 
-### Quick Start
+### Quick start
 
-Build a target density from known particles, then recover their positions from a
-perturbed guess by following the analytical correlation gradient:
+Fit a structure into a density map in one call. With a structure-based
+(OpenSMOG) model:
 
 ```python
-import numpy as np
 from openfit import Fit
 
-rng = np.random.default_rng(0)
-n = 6
-true_coords = rng.uniform(8, 22, size=(n, 3))
-sigma = np.full((n, 3), 2.0)
-epsilon = np.ones(n)
-
-# Generate a synthetic "experimental" map from the ground-truth particles.
-template = Fit(np.zeros((30, 30, 30)), voxel_size=[1, 1, 1])
-template.set_coordinates(true_coords, sigma, epsilon)
-experimental = template.simulation_map()
-
-# Fit, starting from a perturbed guess.
-fit = Fit(experimental, voxel_size=[1, 1, 1])
-fit.set_coordinates(true_coords + rng.normal(scale=1.0, size=(n, 3)), sigma, epsilon)
-print("initial cc:", fit.corr_coef())
-
-for _ in range(50):
-    grad = fit.dcorr_coef()[:, :3]          # d(cc)/d(x, y, z)
-    fit.coordinates += (0.1 / np.abs(grad).max()) * grad
-print("final cc:  ", fit.corr_coef())
+fit = Fit.from_smog("model.AA.gro", "model.AA.top", "model.AA.xml", "target.mrc")
+fit.refine(steps=50_000)     # bias an OpenMM MD run toward the density
+print("correlation:", fit.cc)
+fit.save("refined.pdb")
 ```
 
-#### Build a density map from a PDB structure
+`Fit` also offers `from_amber(pdb, map)` and `from_system(topology, system, positions, map)`
+(bring your own OpenMM force field). See [`examples/4ake/`](examples/4ake/) for a
+complete, runnable flexible-fitting example (open→closed adenylate kinase).
 
-Using the `pdb` extra ([MolScene](https://github.com/cabb99/molscene)):
+### Scoring a density directly
+
+Without any force field, use the `DensityMap` engine to rasterize particles,
+score the map correlation, and optimize coordinates:
 
 ```python
 import numpy as np
+from openfit import DensityMap
+
+dm = DensityMap(experimental_map, voxel_size=[1, 1, 1])
+dm.set_coordinates(coordinates, sigma=np.full((n, 3), 2.0), epsilon=masses)
+print("cc:", dm.correlation())
+grad = dm.gradient()         # (n, 7): d(cc)/d(x, y, z, sx, sy, sz, epsilon)
+dm.fit(n_iter=200)           # gradient ascent on the coordinates (no MD)
+dm.save_mrc("simulated.mrc")
+```
+
+### Build a density map from a PDB structure
+
+With the `pdb` extra ([MolScene](https://github.com/cabb99/molscene)):
+
+```python
 import molscene
-from openfit import Fit
+from openfit import DensityMap
 
-scene = molscene.Scene.from_pdb('structure.pdb')
-coords = scene.get_coordinates().to_numpy()
-masses = scene.compute_mass()['mass'].to_numpy()
-
-pad = 5.0
-fit = Fit.from_dimensions(coords.min(0) - pad, coords.max(0) + pad, voxel_size=[2, 2, 2])
-fit.set_coordinates(coords, sigma=np.full(coords.shape, 2.0), epsilon=masses)
-fit.save_mrc('structure_density.mrc')
+scene = molscene.Scene.from_pdb("structure.pdb")
+dm = DensityMap.from_scene(scene)          # coordinates + atomic-mass weights
+dm.save_mrc("structure_density.mrc")
 ```
 
-See the [`examples/`](examples/) directory for these and the OpenMM integration,
-and the [documentation](https://openfit.readthedocs.io/) for the full guide.
+See the [`examples/`](examples/) directory and the
+[documentation](https://openfit.readthedocs.io/) for the full guide.
 
-## Derivation
+## Method
 
-### Energy
+OpenFit adds a density-fitting potential to a standard force field,
 
-This class implements `V_fit`, a forcefield potential that can be included in an OpenMM molecular dynamics simulation.
+$$ V = V_{ff} + V_{Fit}, \qquad V_{Fit} = k\,(1 - \text{c.c.}) $$
 
-$$ V = V_{ff} + V_{Fit} $$
+where the cross-correlation (c.c.) between the experimental and simulated
+densities over the voxels $(i,j,k)$ is
 
-The potential is defined in terms of the correlation coefficient (c.c.), which is a function of the experimental and simulated densities at each voxel $(i, j, k)$:
+$$ \text{c.c.} = \frac{\sum_{ijk} \rho_{\text{exp}}(i,j,k)\,\rho_{\text{sim}}(i,j,k)}{\sqrt{\sum_{ijk} \rho_{\text{exp}}(i,j,k)^2}\,\sqrt{\sum_{ijk} \rho_{\text{sim}}(i,j,k)^2}}. $$
 
-$$ V_{Fit} = k (1 - \text{c.c.}) $$
-
-The correlation coefficient (c.c.) is defined as:
-
-$$ \text{c.c.} = \frac{\sum_{ijk} \rho_{\text{exp}}(i,j,k) \rho_{\text{sim}}(i,j,k)}{\sqrt{\sum_{ijk} \rho_{\text{exp}}(i,j,k)^2} \sqrt{\sum_{ijk} \rho_{\text{sim}}(i,j,k)^2}} $$
-
-where $\rho_{\text{exp}}(i,j,k)$ and $\rho_{\text{sim}}(i,j,k)$ represent the experimental and synthetically simulated density of each voxel $(i,j,k)$, respectively. The synthetically simulated density $\rho_{\text{sim}}(i,j,k)$ is obtained by integrating the three-dimensional Gaussian function over each voxel:
-
-$$ \rho_{\text{sim}}(i,j,k) = \sum_{n=1}^N \int_{V_{ijk}} g(x,y,z;x_n,y_n,z_n) \, dx \, dy \, dz $$
-
-with the Gaussian function for the particle $n$, $g(x,y,z;x_n,y_n,z_n)$, defined as:
-
-$$
-g(x,y,z;x_n,y_n,z_n,\sigma_{x,n},\sigma_{y,n},\sigma_{z,n},\epsilon_n)  = \frac{\epsilon_n}{(2\pi)^{\frac{3}{2}}\sigma_{x,n}\sigma_{y,n}\sigma_{z,n}} \exp\left( -\frac{1}{2} \left[ \frac{(x-x_n)^2}{\sigma_{x,n}^2} + \frac{(y-y_n)^2}{\sigma_{y,n}^2} + \frac{(z-z_n)^2}{\sigma_{z,n}^2} \right] \right)
-$$
-
-Then the integral for each box can be written as:
-
-$$ \rho_{\text{sim}}(i,j,k) = \sum_{n=1}^N \left( \epsilon_n \int_{x_i^{min}}^{x_i^{max}} \int_{y_j^{min}}^{y_j^{max}} \int_{z_j^{min}}^{z_j^{max}} g(x,y,z;x_n,y_n,z_n,\sigma_{x,n},\sigma_{y,n},\sigma_{z,n}) \, dz \, dy \, dx \right )$$
-
-Where $x_i^{min}$, $x_i^{max}$, $y_j^{min}$, $y_j^{max}$, $z_j^{min}$, and $z_j^{max}$ are the boundaries in x, y, and z for the voxel $(i,j,k)$. The solution to this integral involves the error function ($\text{erf}$). For a Gaussian distribution with mean $\mu$ and standard deviation $\sigma$, the integral over a finite range can be expressed using the error function as follows:
-
-$$ \Phi(x; \mu, \sigma) = \frac{1}{2} \left[ 1 + \text{erf}\left( \frac{x-\mu}{\sigma\sqrt{2}} \right) \right] $$
-
-Where $\Phi(x; \mu, \sigma)$ represents the cumulative distribution function (CDF) for a normal distribution at point $x$. The error function ($\text{erf}(x)$) is defined as:
-
-$$ \text{erf}(x) = \frac{2}{\sqrt{\pi}} \int_{0}^{x} e^{-t^2} dt $$
-
-To compute the integral of the 3D Gaussian over the finite box, we apply the CDF for each dimension:
-
-$$ \rho_{\text{sim}}(i,j,k) = \sum_{n=1}^N \epsilon_n \times \left( \Phi(x_i^{max}; x_n, \sigma_{x,n}) - \Phi(x_i^{min}; x_n, \sigma_{x,n}) \right) \times \left( \Phi(y_j^{max}; y_n, \sigma_{y,n}) - \Phi(y_j^{min}; y_n, \sigma_{y,n}) \right) \times \left( \Phi(z_k^{max}; z_n, \sigma_{z,n}) - \Phi(z_k^{min}; z_n, \sigma_{z,n}) \right) $$
-
-### Derivatives
-
-To compute the derivative of $V_{Fit}$ with respect to the coordinates of the nth atom $(x_n, y_n, z_n)$, we need to apply the chain rule to the derivative of $V_{Fit}$ in terms of c.c. and then the derivative of c.c. in terms of $(x_n, y_n, z_n)$. Like $V_{Fit}$ with respect to a variable $v$ is:
-
-$$ \frac{\partial V_{Fit}}{\partial v} = \frac{\partial V_{Fit}}{\partial \text{c.c}} \left( \frac{\partial \text{c.c}}{\partial \rho_{sim}} \left( \frac{\partial \rho_{sim}}{\partial x_n} \right) \right) $$
-
-Where the first derivative is a constant:
-
-$$
-\frac{d V_{Fit}}{d v} = k \frac{d\text{c.c.}}{dv}
-$$
-
-The second derivative is a function of $\rho_{sim}$:
-
-$$
-\frac{d\text{c.c.}}{dv} = \frac{\sum_{ijk} \frac{\partial \rho_{\text{sim}}(i,j,k)}{\partial v} \cdot \rho_{\text{exp}}(i,j,k)}{\sqrt{\sum_{ijk} \rho_{\text{sim}}(i,j,k)^2} \cdot \sqrt{\sum_{ijk} \rho_{\text{exp}}(i,j,k)^2}} - \frac{\sum_{ijk} 2 \cdot \rho_{\text{sim}}(i,j,k) \cdot \frac{\partial \rho_{\text{sim}}(i,j,k)}{\partial v} \cdot \sum_{lmn} \rho_{\text{sim}}(l,m,n) \cdot \rho_{\text{exp}}(l,m,n)}{2 \cdot \left( \sum_{ijk} \rho_{\text{sim}}(i,j,k)^2 \right)^{\frac{3}{2}} \cdot \sqrt{\sum_{ijk} \rho_{\text{exp}}(i,j,k)^2}}
-$$
-
-Where $\rho_{\text{exp}}(i,j,k)$ represents the experimental density at the voxel located at indices (i, j, k), $\rho_{\text{sim}}(i,j,k)$ is the simulated density at the voxel $(i, j, k)$, which is a function of the molecular coordinates and parameters like sigma, and $\frac{\partial \rho_{\text{sim}}(i,j,k)}{\partial v}$ denotes the partial derivative of the simulated density at voxel $(i, j, k)$ with respect to a variable $v$ which can be the coordinates or sigma.
-
-The derivatives of the function $\Phi(x; \mu, \sigma) = \frac{1}{2} \left[ 1 + \text{erf}\left( \frac{x-\mu}{\sigma\sqrt{2}} \right) \right]$ are as follows:
-
-- In terms of $\mu$:
-
-$$ \frac{\partial \Phi}{\partial \mu} = -\frac{e^{-\frac{(x -\mu)^2}{2\sigma^2}}}{\sqrt{2\pi}\sigma} $$
-
-- In terms of $\sigma$:
-
-$$ \frac{\partial \Phi}{\partial \sigma} = -\frac{(x - \mu)e^{-\frac{(x - \mu)^2}{2\sigma^2}}}{\sqrt{2\pi}\sigma^2} $$
-
-Then the derivative of $\frac{\partial \rho_{\text{sim}}(i,j,k)}{\partial x_n}$ would be for example: 
-
-$$
-\frac{\partial \rho_{\text{sim}}(i,j,k)}{\partial x_n} = \epsilon_n \left( \frac{e^{\frac{-(x_i^{max} - x_n)^2}{2\sigma_{x,n}^2}} - e^{\frac{-(x_i^{min} - x_n)^2}{2\sigma_{x,n}^2}}}{\sqrt{2\pi}\sigma_{x,n}} \right) \times \left( \Phi(y_j^{max}; y_n, \sigma_{y,n}) - \Phi(y_j^{min}; y_n, \sigma_{y,n}) \right) \times \left( \Phi(z_k^{max}; z_n, \sigma_{z,n}) - \Phi(z_k^{min}; z_n, \sigma_{z,n}) \right)
-$$
+The simulated density rasterizes each atom as an anisotropic 3D Gaussian; OpenFit
+computes it and the analytical gradient of the correlation with respect to the
+coordinates and Gaussian widths, and applies the corresponding force. The full
+derivation — the Gaussian integral over each voxel (via the error function) and
+the correlation derivatives — is in the
+[user guide](https://openfit.readthedocs.io/en/latest/user_guide.html#method-and-derivation).
 
 ## Copyright
 
