@@ -5,14 +5,14 @@ Requires the ``openmm`` extra::
     pip install "openfit[openmm]"
     python examples/04_openmm_integration.py
 
-A handful of free particles are driven by the OpenFit correlation force. The
-force's tabulated per-particle gradient is refreshed every few MD steps via
-:meth:`Fit.update_force`, without rebuilding the OpenMM ``Context``.
+A handful of free particles are driven by the OpenFit correlation force. A
+``DensityForceUpdater`` refreshes the force's tabulated per-atom gradient every few
+MD steps (no manual loop, no Context rebuild).
 """
 
 import numpy as np
 
-from openfit import DensityMap
+from openfit import DensityForce, DensityForceUpdater, DensityMap
 
 
 def main(total_steps=200, update_every=50, seed=0):
@@ -26,15 +26,18 @@ def main(total_steps=200, update_every=50, seed=0):
     target = DensityMap(np.zeros((20, 20, 20)), voxel_size=[1, 1, 1])
     target.set_coordinates(rng.uniform(5, 15, size=(n, 3)), np.full((n, 3), 2.0), np.ones(n))
 
-    fit = DensityMap(target.simulation_map(), voxel_size=[1, 1, 1])
-    fit.set_coordinates(rng.uniform(5, 15, size=(n, 3)), np.full((n, 3), 2.0), np.ones(n))
+    density = DensityMap(target.simulation_map(), voxel_size=[1, 1, 1])
+    density.set_coordinates(rng.uniform(5, 15, size=(n, 3)), np.full((n, 3), 2.0), np.ones(n))
 
     # Minimal OpenMM system: n free particles in the map's periodic box.
     system = openmm.System()
-    system.setDefaultPeriodicBoxVectors(*[openmm.Vec3(*v) for v in fit.periodic_vectors()])
+    system.setDefaultPeriodicBoxVectors(*[openmm.Vec3(*v) for v in density.periodic_vectors()])
     for _ in range(n):
         system.addParticle(12.0)
-    fit.add_force(system)
+
+    # Add the density-fitting force (before the Context is created).
+    force = DensityForce(density, k=3200)
+    force.add_to(system)
 
     topology = app.Topology()
     residue = topology.addResidue("UNK", topology.addChain())
@@ -44,14 +47,14 @@ def main(total_steps=200, update_every=50, seed=0):
     integrator = openmm.LangevinMiddleIntegrator(300 * unit.kelvin, 1 / unit.picosecond, 2 * unit.femtoseconds)
     platform = openmm.Platform.getPlatformByName("Reference")
     simulation = app.Simulation(topology, system, integrator, platform)
-    simulation.context.setPositions((fit.coordinates / 10.0) * unit.nanometer)  # A -> nm
+    simulation.context.setPositions((density.coordinates / 10.0) * unit.nanometer)  # A -> nm
 
-    fit.update_force(simulation, k=3200)
-    cc_start = fit.correlation()
-    for _ in range(total_steps // update_every):
-        simulation.step(update_every)
-        fit.update_force(simulation, k=3200)
-    cc_end = fit.correlation()
+    # The updater refreshes the force every `update_every` steps.
+    simulation.reporters.append(DensityForceUpdater(force, interval=update_every))
+
+    cc_start = density.correlation()
+    simulation.step(total_steps)
+    cc_end = density.correlation()
 
     return cc_start, cc_end
 

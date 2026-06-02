@@ -3,7 +3,8 @@ API Reference
 
 .. currentmodule:: openfit
 
-OpenFit exposes the :class:`DensityMap` density-fitting engine and the
+OpenFit exposes the :class:`DensityMap` density-fitting engine, the OpenMM
+integration (:class:`DensityForce` / :class:`DensityForceUpdater`), and the
 :func:`generate_rotations` helper.
 
 The ``DensityMap`` engine
@@ -13,6 +14,15 @@ The ``DensityMap`` engine
    :members:
    :undoc-members:
    :member-order: bysource
+
+OpenMM integration
+------------------
+
+.. autoclass:: DensityForce
+   :members:
+
+.. autoclass:: DensityForceUpdater
+   :members:
 
 Rotations
 ---------

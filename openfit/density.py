@@ -15,7 +15,7 @@ class DensityMap:
     with the experimental map, and the analytical gradient of that correlation
     with respect to the particle coordinates and Gaussian widths. The gradient
     can drive a direct optimization (:meth:`fit`) or be injected as a force into
-    an OpenMM simulation (:meth:`add_force` / :meth:`update_force`).
+    an OpenMM simulation via :class:`openfit.DensityForce` / :class:`openfit.DensityForceUpdater`.
 
     Parameters
     ----------
@@ -73,7 +73,6 @@ class DensityMap:
         self.coordinates = None
         self.sigma = None
         self.epsilon = None
-        self.force = None
 
     @property
     def experimental_map(self):
@@ -301,39 +300,6 @@ class DensityMap:
                         f"{atom_idx} {force[0]} {force[1]} {force[2]} {force[3]} {force[4]} {force[5]} {force[6]}\n"
                     )
 
-    def add_force(self, system):
-        """Add the density-fitting force to an OpenMM ``System``.
-
-        Registers a ``CustomCompoundBondForce`` whose per-particle force is read
-        from a tabulated function; refresh it during the simulation with
-        :meth:`update_force`. The force is stored on ``self.force``.
-
-        Parameters
-        ----------
-        system : openmm.System
-            The system to add the force to. Must already contain the particles.
-
-        Returns
-        -------
-        openmm.CustomCompoundBondForce
-            The force that was added.
-        """
-        import openmm
-
-        n_particles = system.getNumParticles()
-
-        force = openmm.CustomCompoundBondForce(1, "-k(i,0)*x1-k(i,1)*y1-k(i,2)*z1")
-        force_array = np.zeros((n_particles, 3))
-        force_vectors = openmm.Discrete2DFunction(force_array.shape[0], force_array.shape[1], force_array.T.flatten())
-        force.addTabulatedFunction("k", force_vectors)
-        force.addPerBondParameter("i")
-        for i in range(n_particles):
-            force.addBond([i], [i])
-        force.setUsesPeriodicBoundaryConditions(True)
-        system.addForce(force)
-        self.force = force
-        return force
-
     def periodic_vectors(self):
         """Periodic box vectors matching the map extent, in nanometres.
 
@@ -348,53 +314,6 @@ class DensityMap:
             [0, self.voxel_size[1] * self.n_voxels[1] / 10, 0],
             [0, 0, self.voxel_size[2] * self.n_voxels[2] / 10],
         )
-
-    def update_coordinates(self, simulation):
-        import openmm
-
-        state = simulation.context.getState(getPositions=True)
-        positions = state.getPositions()
-        coordinates = np.array(positions.value_in_unit(openmm.unit.angstrom))
-        self.set_coordinates(coordinates)
-
-    def update_force(self, simulation, update_coordinates=True, k=3200, force=None, force_array=None):
-        """Refresh the fitting force from the current simulation state.
-
-        Reads the current positions (unless ``update_coordinates`` is False),
-        recomputes the correlation gradient scaled by ``k``, writes it into the
-        tabulated function, and pushes it to the OpenMM ``Context`` without a
-        rebuild.
-
-        Parameters
-        ----------
-        simulation : openmm.app.Simulation
-            The running simulation (only ``simulation.context`` is used).
-        update_coordinates : bool, optional
-            Re-read positions from the context before computing the gradient.
-        k : float, optional
-            Force constant scaling the correlation gradient.
-        force : openmm.Force, optional
-            Force to update; defaults to the one created by :meth:`add_force`.
-        force_array : numpy.ndarray, optional
-            Explicit ``(n, 3)`` force values to use instead of the computed gradient.
-
-        Returns
-        -------
-        numpy.ndarray
-            The ``(n, 3)`` force array written to the context.
-        """
-        if update_coordinates:
-            self.update_coordinates(simulation)
-        if force is None:
-            force = self.force
-        if force_array is None:
-            force_array = k * self.gradient()[:, :3]
-        tabulated_function = self.force.getTabulatedFunction(0)
-        params = tabulated_function.getFunctionParameters()
-        params[2] = force_array.T.ravel()
-        tabulated_function.setFunctionParameters(*params)
-        force.updateParametersInContext(simulation.context)
-        return force_array
 
     def set_coordinates(self, coordinates, sigma=None, epsilon=None):
         """Set the particle coordinates and (optionally) widths and weights.
