@@ -150,6 +150,11 @@ simulated densities at each voxel :math:`(i, j, k)`:
     \text{c.c.} = \frac{\sum_{ijk} \rho_{\text{exp}}(i,j,k)\, \rho_{\text{sim}}(i,j,k)}
     {\sqrt{\sum_{ijk} \rho_{\text{exp}}(i,j,k)^2}\; \sqrt{\sum_{ijk} \rho_{\text{sim}}(i,j,k)^2}}
 
+In practice both densities are mean-subtracted and scaled to unit standard
+deviation before the sums (the experimental map when the :class:`~openfit.DensityMap`
+is created, the simulated map inside :meth:`~openfit.DensityMap.correlation`), so
+this equals the Pearson correlation coefficient.
+
 The simulated density :math:`\rho_{\text{sim}}(i,j,k)` is the integral of the 3D
 Gaussian of each particle over the voxel:
 
@@ -192,9 +197,12 @@ The force on atom :math:`n` follows from the chain rule on a variable :math:`v`
     = \frac{\partial V_{Fit}}{\partial \text{c.c.}}\,
       \frac{\partial \text{c.c.}}{\partial \rho_{sim}}\,
       \frac{\partial \rho_{sim}}{\partial v}
-    = k\, \frac{d\,\text{c.c.}}{dv}
+    = -k\, \frac{d\,\text{c.c.}}{dv}
 
-with
+since :math:`V_{Fit} = k(1-\text{c.c.})` gives :math:`\partial V_{Fit}/\partial\text{c.c.} = -k`.
+The applied force is therefore :math:`-\partial V_{Fit}/\partial v = +k\, (d\,\text{c.c.}/dv)`, 
+exactly :math:`k` times the gradient returned by :meth:`~openfit.DensityMap.gradient`. 
+The correlation derivative is
 
 .. math::
 
@@ -202,7 +210,7 @@ with
     \frac{\sum_{ijk} \frac{\partial \rho_{\text{sim}}}{\partial v}\, \rho_{\text{exp}}}
          {\sqrt{\sum_{ijk} \rho_{\text{sim}}^2}\, \sqrt{\sum_{ijk} \rho_{\text{exp}}^2}}
     - \frac{\sum_{ijk} \rho_{\text{sim}}\, \frac{\partial \rho_{\text{sim}}}{\partial v}\;
-            \sum_{lmn} \rho_{\text{sim}}\, \rho_{\text{exp}}}
+            \sum_{i'j'k'} \rho_{\text{sim}}\, \rho_{\text{exp}}}
            {\left( \sum_{ijk} \rho_{\text{sim}}^2 \right)^{3/2} \sqrt{\sum_{ijk} \rho_{\text{exp}}^2}}
 
 The CDF derivatives are
@@ -219,9 +227,11 @@ so, for example, the derivative of the simulated density with respect to
 .. math::
 
     \frac{\partial \rho_{\text{sim}}(i,j,k)}{\partial x_n} = \epsilon_n
-    \left( \frac{e^{\frac{-(x_i^{max}-x_n)^2}{2\sigma_{x,n}^2}} - e^{\frac{-(x_i^{min}-x_n)^2}{2\sigma_{x,n}^2}}}{\sqrt{2\pi}\,\sigma_{x,n}} \right)
+    \left( \frac{e^{\frac{-(x_i^{min}-x_n)^2}{2\sigma_{x,n}^2}} - e^{\frac{-(x_i^{max}-x_n)^2}{2\sigma_{x,n}^2}}}{\sqrt{2\pi}\,\sigma_{x,n}} \right)
     \left( \Phi(y_j^{max}) - \Phi(y_j^{min}) \right)
     \left( \Phi(z_k^{max}) - \Phi(z_k^{min}) \right)
 
-These are exactly what :meth:`~openfit.DensityMap.gradient` returns (columns
-``0:3`` for coordinates, ``3:6`` for widths, ``6`` for the weight).
+(the :math:`x_i^{min}` term carries the positive sign because
+:math:`\partial \Phi/\partial \mu` is negative). These are exactly what
+:meth:`~openfit.DensityMap.gradient` returns (columns ``0:3`` for coordinates,
+``3:6`` for widths, ``6`` for the weight).

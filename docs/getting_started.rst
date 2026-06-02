@@ -23,9 +23,9 @@ extra packages, declared as extras:
     pip install "openfit[all]"
 
 The available extras are ``openmm`` (molecular dynamics integration), ``io``
-(``mrcfile`` + ``mdtraj``), ``pdb`` (the `MolScene
-<https://github.com/cabb99/molscene>`_-based PDB/CIF workflow), and ``viz``
-(``matplotlib``).
+(density-map I/O with ``mrcfile`` and trajectory I/O with ``mdtraj``), ``pdb``
+(the `MolScene <https://github.com/cabb99/molscene>`_-based PDB/CIF workflow),
+and ``viz`` (``matplotlib``). ``all`` installs every extra.
 
 For development, create the conda environment and install in editable mode:
 
@@ -67,8 +67,8 @@ a perturbed guess by following the correlation gradient:
     rng = np.random.default_rng(0)
     n = 6
     true_coords = rng.uniform(8, 22, size=(n, 3))
-    sigma = np.full((n, 3), 2.0)
-    epsilon = np.ones(n)
+    sigma = np.full((n, 3), 2.0)     # per-axis Gaussian widths
+    epsilon = np.ones(n)             # per-particle weight (e.g. atomic mass)
 
     # Generate a synthetic "experimental" map from the ground-truth particles.
     template = DensityMap(np.zeros((30, 30, 30)), voxel_size=[1, 1, 1])

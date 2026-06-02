@@ -29,16 +29,10 @@ pip install openfit
 pip install "openfit[all]"
 ```
 
-Available extras: `openmm` (molecular dynamics integration), `io` (`mrcfile` +
-`mdtraj`), `pdb` (the [MolScene](https://github.com/cabb99/molscene)-based
-PDB/CIF workflow), and `viz` (`matplotlib`).
-
-### Prerequisites
-
-- Python 3.6+
-- Numpy
-- SciPy
-- Numba
+Available extras: `openmm` (molecular dynamics integration), `io` (density-map
+I/O with `mrcfile` + trajectory I/O with `mdtraj`), `pdb` (the
+[MolScene](https://github.com/cabb99/molscene)-based PDB/CIF workflow), and
+`viz` (`matplotlib`). `all` installs every extra.
 
 ## Usage
 
@@ -65,12 +59,20 @@ complete, runnable flexible-fitting example (open→closed adenylate kinase).
 Without any force field, use the `DensityMap` engine to rasterize particles,
 score the map correlation, and optimize coordinates:
 
+Each particle is an anisotropic 3D Gaussian set by its coordinates, per-axis
+widths `sigma`, and a weight `epsilon` (often the atomic mass):
+
 ```python
 import numpy as np
 from openfit import DensityMap
 
-dm = DensityMap(experimental_map, voxel_size=[1, 1, 1])
-dm.set_coordinates(coordinates, sigma=np.full((n, 3), 2.0), epsilon=masses)
+n = 100
+coordinates = np.random.default_rng(0).uniform(0, 40, size=(n, 3))
+sigma = np.full((n, 3), 2.0)
+epsilon = np.ones(n)                       # per-particle weight (e.g. mass)
+
+dm = DensityMap(experimental_map, voxel_size=[1, 1, 1])   # a 3D numpy array
+dm.set_coordinates(coordinates, sigma=sigma, epsilon=epsilon)
 print("cc:", dm.correlation())
 grad = dm.gradient()         # (n, 7): d(cc)/d(x, y, z, sx, sy, sz, epsilon)
 dm.fit(n_iter=200)           # gradient ascent on the coordinates (no MD)
