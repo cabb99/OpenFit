@@ -92,6 +92,34 @@ dm = DensityMap.from_scene(scene)          # coordinates + atomic-mass weights
 dm.save_mrc("structure_density.mrc")
 ```
 
+### Command line
+
+OpenFit installs an `openfit` command:
+
+```bash
+# SMOG structure-based model
+openfit refine --smog model.AA.gro model.AA.top model.AA.xml target.mrc \
+    -o refined.pdb --steps 50000
+
+# all-atom PDB (Amber14 + implicit solvent)
+openfit refine --pdb model.pdb target.mrc -o refined.pdb
+
+# or drive it from a YAML config (needs the `cli` extra: pip install "openfit[cli]")
+openfit run config.yaml
+```
+
+A config file mirrors the flags:
+
+```yaml
+smog: [model.AA.gro, model.AA.top, model.AA.xml]   # or: pdb: model.pdb
+map: target.mrc
+output: refined.pdb
+output_map: fitted.mrc        # optional
+steps: 50000
+k: 3200
+update_interval: 100
+```
+
 See the [`examples/`](examples/) directory and the
 [documentation](https://openfit.readthedocs.io/) for the full guide.
 

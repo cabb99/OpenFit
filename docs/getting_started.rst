@@ -88,3 +88,32 @@ a perturbed guess by following the correlation gradient:
 This runnable script lives in ``examples/01_fit_synthetic.py``. See the
 :doc:`user_guide` for loading real maps, saving results, the OpenMM integration,
 and the method's derivation.
+
+Quick start — the command line
+------------------------------
+
+Installing OpenFit provides an ``openfit`` command:
+
+.. code-block:: bash
+
+    # SMOG structure-based model
+    openfit refine --smog model.AA.gro model.AA.top model.AA.xml target.mrc \
+        -o refined.pdb --steps 50000
+
+    # all-atom PDB (Amber14 + implicit solvent)
+    openfit refine --pdb model.pdb target.mrc -o refined.pdb
+
+    # or from a YAML config (needs the ``cli`` extra)
+    openfit run config.yaml
+
+The YAML mirrors the flags:
+
+.. code-block:: yaml
+
+    smog: [model.AA.gro, model.AA.top, model.AA.xml]   # or: pdb: model.pdb
+    map: target.mrc
+    output: refined.pdb
+    output_map: fitted.mrc        # optional
+    steps: 50000
+    k: 3200
+    update_interval: 100

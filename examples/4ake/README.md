@@ -32,15 +32,20 @@ pip install OpenSMOG "openfit[openmm,io]"
 ## Running
 
 ```bash
-python run_fit.py                          # 500 fitting cycles on CPU (~minutes)
-python run_fit.py --fitting-iterations 100 # shorter
-python run_fit.py --platform CUDA          # if an OpenMM CUDA platform is available
+python run_fit.py                    # 50000 steps on CPU (~minutes)
+python run_fit.py --steps 10000      # shorter
+python run_fit.py --platform CUDA    # if an OpenMM CUDA platform is available
+
+# equivalently, via the CLI + config file:
+openfit run config.yaml
 ```
 
-The script: builds the SMOG system, loads `1AKE.mrc` as the target and adds the
-OpenFit force, removes the COM-motion remover (so the force can translate the
-protein), equilibrates briefly, then alternates `update_force` with short MD
-runs, saving `initial.mrc`/`final.mrc` and the correlation history.
+`run_fit.py` is a thin wrapper around `openfit.Fit.from_smog(...).refine(...)`:
+`from_smog` builds the SMOG system, loads `1AKE.mrc` as the target, adds the
+OpenFit force (and a `DensityForceUpdater` that refreshes it during MD), and
+strips the COM-motion remover so the force can translate the protein. `refine`
+runs the MD and the script saves `initial.mrc`/`final.mrc`/`final.pdb` and the
+correlation history.
 
 ## Result
 

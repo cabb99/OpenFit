@@ -40,6 +40,9 @@ dependencies = [
 "Source" = "https://github.com/cabb99/OpenFit"
 "Documentation" = "https://openfit.readthedocs.io/"
 
+[project.scripts]
+openfit = "openfit.cli:main"
+
 [project.optional-dependencies]
 # OpenMM molecular dynamics integration (add_force / update_force).
 openmm = [
@@ -59,6 +62,10 @@ pdb = [
 viz = [
   "matplotlib",
 ]
+# YAML config support for `openfit run`.
+cli = [
+  "pyyaml",
+]
 # Everything needed for the full feature set.
 all = [
   "openmm",
@@ -66,6 +73,7 @@ all = [
   "mdtraj",
   "molscene @ git+https://github.com/cabb99/molscene",
   "matplotlib",
+  "pyyaml",
 ]
 test = [
   "pytest>=6.1.2",

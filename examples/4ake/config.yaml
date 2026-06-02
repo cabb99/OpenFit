@@ -1,0 +1,15 @@
+# OpenFit config for the 4AKE -> 1AKE flexible fit.
+# Run from this directory with:  openfit run config.yaml
+# (equivalent to run_fit.py / the Fit.from_smog one-call API)
+
+smog: [4ake.AA.gro, 4ake.AA.top, 4ake.AA.xml]
+map: 1AKE.mrc
+
+output: refined.pdb        # fitted structure
+output_map: refined.mrc    # fitted density
+
+steps: 50000
+k: 3200
+update_interval: 100
+sigma: 1.5
+platform: CPU
