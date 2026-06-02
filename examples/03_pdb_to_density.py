@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from openfit import Fit
+from openfit import DensityMap
 
 # A minimal 5-atom PDB (poly-glycine backbone fragment) with element symbols.
 _SAMPLE_PDB = """\
@@ -39,7 +39,7 @@ def main():
     masses = scene.compute_mass()["mass"].to_numpy()
 
     pad = 5.0
-    fit = Fit.from_dimensions(coords.min(0) - pad, coords.max(0) + pad, voxel_size=[1, 1, 1])
+    fit = DensityMap.from_dimensions(coords.min(0) - pad, coords.max(0) + pad, voxel_size=[1, 1, 1])
     fit.set_coordinates(coords, sigma=np.full(coords.shape, 1.5), epsilon=masses)
 
     out = workdir / "structure_density.mrc"

@@ -3,13 +3,13 @@ API Reference
 
 .. currentmodule:: openfit
 
-OpenFit exposes a small public surface: the :class:`Fit` density-fitting engine
-and the :func:`generate_rotations` helper.
+OpenFit exposes the :class:`DensityMap` density-fitting engine and the
+:func:`generate_rotations` helper.
 
-The ``Fit`` class
------------------
+The ``DensityMap`` engine
+-------------------------
 
-.. autoclass:: Fit
+.. autoclass:: DensityMap
    :members:
    :undoc-members:
    :member-order: bysource

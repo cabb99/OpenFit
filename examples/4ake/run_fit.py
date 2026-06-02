@@ -31,7 +31,7 @@ import numpy as np
 import openmm
 from OpenSMOG import SBM
 
-from openfit import Fit
+from openfit import DensityMap
 
 HERE = Path(__file__).resolve().parent
 
@@ -64,7 +64,7 @@ def main(
     )
 
     # --- 2. Target density and the OpenFit fitting force ---------------------
-    fit = Fit.from_mrc(str(HERE / "1AKE.mrc"))
+    fit = DensityMap.from_mrc(str(HERE / "1AKE.mrc"))
     sbm.system.setDefaultPeriodicBoxVectors(*fit.periodic_vectors())
     fit.add_force(sbm.system)
 
@@ -85,7 +85,7 @@ def main(
 
     fit.set_coordinates(_positions_angstrom(sbm.simulation), sigma, epsilon)
     fit.save_mrc(str(HERE / "initial.mrc"))
-    print(f"initial correlation coefficient: {fit.corr_coef():.4f}", flush=True)
+    print(f"initial correlation coefficient: {fit.correlation():.4f}", flush=True)
 
     # --- 4. Equilibrate, then iteratively fit --------------------------------
     sbm.run(nsteps=equilibration_steps, report=True, interval=equilibration_steps)
@@ -95,7 +95,7 @@ def main(
         # update_force reads the current positions, recomputes the correlation
         # gradient, scales it by k, and writes it into the tabulated force.
         fit.update_force(sbm.simulation, k=k)
-        cc = fit.corr_coef()
+        cc = fit.correlation()
         history.append(cc)
         if i % 10 == 0:
             print(f"iter {i:4d}  cc = {cc:.4f}", flush=True)
@@ -103,7 +103,7 @@ def main(
 
     fit.set_coordinates(_positions_angstrom(sbm.simulation), sigma, epsilon)
     fit.save_mrc(str(HERE / "final.mrc"))
-    final_cc = fit.corr_coef()
+    final_cc = fit.correlation()
     print(f"final correlation coefficient:   {final_cc:.4f}", flush=True)
 
     np.savetxt(HERE / "correlation_history.txt", np.asarray(history))

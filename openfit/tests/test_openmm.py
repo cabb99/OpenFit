@@ -12,7 +12,7 @@ import pytest
 
 openmm = pytest.importorskip("openmm")
 
-from openfit import Fit  # noqa: E402  (import after importorskip)
+from openfit import DensityMap  # noqa: E402  (import after importorskip)
 
 
 class _ContextSim:
@@ -30,7 +30,7 @@ def _make_fit(n_particles):
     nx, ny, nz = 20, 20, 20
     rng = np.random.default_rng(0)
     coords = rng.random((n_particles, 3)) * 5.0  # angstrom, inside the box
-    fit = Fit(rng.random((nz, ny, nx)), voxel_size=[1, 1, 1])
+    fit = DensityMap(rng.random((nz, ny, nx)), voxel_size=[1, 1, 1])
     fit.set_coordinates(coords, np.ones((n_particles, 3)), np.ones(n_particles))
     return fit
 

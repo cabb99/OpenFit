@@ -1,4 +1,4 @@
-"""Tests for the :class:`openfit.Fit` density-fitting engine.
+"""Tests for the :class:`openfit.DensityMap` density-fitting engine.
 
 These formalize the assertions that previously lived in the ``Fit.test()``
 method and the module ``__main__`` block: the Numba-accelerated kernels must
@@ -9,7 +9,7 @@ agree with finite-difference references.
 import numpy as np
 import pytest
 
-from openfit import Fit
+from openfit import DensityMap
 
 # --- Simulated map -------------------------------------------------------
 
@@ -42,36 +42,36 @@ def test_dsim_map_matches_numerical(small_fit, axis):
 # --- Correlation-coefficient gradient ------------------------------------
 
 
-def test_dcorr_coef_analytical_vs_numerical(small_fit):
+def test_gradient_analytical_vs_numerical(small_fit):
     """Numba ``dcorr_v3`` coordinate gradient matches finite differences."""
     assert np.allclose(
-        small_fit.dcorr_coef()[:, :3],
-        small_fit.dcorr_coef_numerical()[:, :3],
+        small_fit.gradient()[:, :3],
+        small_fit.gradient_numerical()[:, :3],
     )
 
 
-def test_dcorr_coef_numpy_vs_numerical(small_fit):
+def test_gradient_numpy_vs_numerical(small_fit):
     """Pure-NumPy correlation gradient matches finite differences."""
     assert np.allclose(
-        small_fit.dcorr_coef_numpy()[:, :3],
-        small_fit.dcorr_coef_numerical()[:, :3],
+        small_fit.gradient_numpy()[:, :3],
+        small_fit.gradient_numerical()[:, :3],
     )
 
 
-def test_dcorr_coef_v3_vs_numpy_coordinates(small_fit):
+def test_gradient_v3_vs_numpy_coordinates(small_fit):
     """Numba and NumPy correlation gradients agree for coordinates."""
     assert np.allclose(
-        small_fit.dcorr_coef()[:, :3],
-        small_fit.dcorr_coef_numpy()[:, :3],
+        small_fit.gradient()[:, :3],
+        small_fit.gradient_numpy()[:, :3],
         atol=1e-7,
     )
 
 
-def test_dcorr_coef_v3_vs_numpy_sigma(small_fit):
+def test_gradient_v3_vs_numpy_sigma(small_fit):
     """Numba and NumPy correlation gradients agree for sigma."""
     assert np.allclose(
-        small_fit.dcorr_coef()[:, 3:],
-        small_fit.dcorr_coef_numpy()[:, 3:],
+        small_fit.gradient()[:, 3:],
+        small_fit.gradient_numpy()[:, 3:],
         atol=1e-5,
     )
 
@@ -79,7 +79,7 @@ def test_dcorr_coef_v3_vs_numpy_sigma(small_fit):
 # --- Correlation coefficient ---------------------------------------------
 
 
-def test_corr_coef_self_is_one():
+def test_correlation_self_is_one():
     """Fitting a map against the density that produced it gives cc ~= 1."""
     nx, ny, nz = 30, 25, 20
     rng = np.random.default_rng(1)
@@ -88,18 +88,18 @@ def test_corr_coef_self_is_one():
     epsilon = np.ones(8)
 
     # Generate a reference density, then fit an identical system to it.
-    reference = Fit(np.zeros((nz, ny, nx)), voxel_size=[1, 1, 1])
+    reference = DensityMap(np.zeros((nz, ny, nx)), voxel_size=[1, 1, 1])
     reference.set_coordinates(coords, sigma, epsilon)
     target_map = reference.simulation_map()
 
-    fit = Fit(target_map, voxel_size=[1, 1, 1])
+    fit = DensityMap(target_map, voxel_size=[1, 1, 1])
     fit.set_coordinates(coords, sigma, epsilon)
-    assert fit.corr_coef() == pytest.approx(1.0, abs=1e-6)
+    assert fit.correlation() == pytest.approx(1.0, abs=1e-6)
 
 
-def test_corr_coef_in_range(small_fit):
+def test_correlation_in_range(small_fit):
     """The correlation coefficient is bounded in [-1, 1]."""
-    cc = small_fit.corr_coef()
+    cc = small_fit.correlation()
     assert -1.0 <= cc <= 1.0
 
 
@@ -114,13 +114,13 @@ def test_fit_improves_and_returns_history():
     sigma = np.full((6, 3), 2.0)
     epsilon = np.ones(6)
 
-    reference = Fit(np.zeros((nz, ny, nx)), voxel_size=[1, 1, 1])
+    reference = DensityMap(np.zeros((nz, ny, nx)), voxel_size=[1, 1, 1])
     reference.set_coordinates(coords, sigma, epsilon)
     target = reference.simulation_map()
 
-    fit = Fit(target, voxel_size=[1, 1, 1])
+    fit = DensityMap(target, voxel_size=[1, 1, 1])
     fit.set_coordinates(coords + rng.normal(scale=1.0, size=(6, 3)), sigma, epsilon)
-    initial = fit.corr_coef()
+    initial = fit.correlation()
 
     result = fit.fit(n_iter=100, tol=0.0, verbose=False)
     assert set(result) == {"correlation", "n_iter", "converged", "history"}
@@ -133,7 +133,7 @@ def test_fit_improves_and_returns_history():
 
 def test_repr(small_fit):
     text = repr(small_fit)
-    assert text.startswith("Fit(")
+    assert text.startswith("DensityMap(")
     assert "particles=10" in text
 
 
@@ -155,7 +155,7 @@ def test_from_scene():
         fh.write(pdb)
         path = fh.name
     scene = molscene.Scene.from_pdb(path)
-    fit = Fit.from_scene(scene, voxel_size=[1, 1, 1], padding=5.0)
+    fit = DensityMap.from_scene(scene, voxel_size=[1, 1, 1], padding=5.0)
     assert fit.coordinates.shape == (3, 3)
     assert np.all(np.asarray(fit.simulation_map().shape) > 0)
 
@@ -165,7 +165,7 @@ def test_from_scene():
 
 def test_from_dimensions_shape_and_voxel():
     """``from_dimensions`` produces a map covering the requested bounds."""
-    fit = Fit.from_dimensions(
+    fit = DensityMap.from_dimensions(
         min_coords=[0, 0, 0],
         max_coords=[10, 20, 30],
         voxel_size=[1, 1, 1],
@@ -181,12 +181,12 @@ def test_from_dimensions_shape_and_voxel():
 
 def test_constructor_rejects_non_3d_map():
     with pytest.raises(ValueError):
-        Fit(np.zeros((10, 10)), voxel_size=[1, 1, 1])
+        DensityMap(np.zeros((10, 10)), voxel_size=[1, 1, 1])
 
 
 def test_constructor_rejects_bad_voxel_size():
     with pytest.raises(ValueError):
-        Fit(np.zeros((5, 5, 5)), voxel_size=[1, 1])
+        DensityMap(np.zeros((5, 5, 5)), voxel_size=[1, 1])
 
 
 def test_set_coordinates_rejects_bad_coordinate_shape(small_fit):
@@ -213,7 +213,7 @@ def test_mrc_roundtrip(small_fit, tmp_path):
     path = tmp_path / "map.mrc"
     small_fit.save_mrc(str(path), experimental=True)
 
-    reloaded = Fit.from_mrc(str(path))
+    reloaded = DensityMap.from_mrc(str(path))
     assert reloaded.experimental_map.shape == small_fit.experimental_map.shape
     # Both maps are normalized on load, so they should match closely
     # (float32 storage in the MRC file sets the tolerance).

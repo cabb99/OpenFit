@@ -15,7 +15,7 @@ def test_openfit_imported():
 
 def test_public_api():
     """The documented public names are importable from the top-level package."""
-    assert hasattr(openfit, "Fit")
+    assert hasattr(openfit, "DensityMap")
     assert hasattr(openfit, "generate_rotations")
 
 

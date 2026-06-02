@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from openfit import Fit
+from openfit import DensityMap
 
 # A small, deterministic system. These dimensions mirror the historical
 # ``Fit.test()`` / ``__main__`` sanity check, which is known to pass the
@@ -27,7 +27,7 @@ def coordinates(rng):
 
 @pytest.fixture
 def small_fit(rng, coordinates):
-    """A configured :class:`~openfit.Fit` on a random experimental map.
+    """A configured :class:`~openfit.DensityMap` on a random experimental map.
 
     The map is random noise, which is sufficient for validating the
     analytical machinery (simulated map, derivatives, correlation gradient)
@@ -36,6 +36,6 @@ def small_fit(rng, coordinates):
     experimental_map = rng.random((NZ, NY, NX))
     sigma = np.ones((N_PARTICLES, 3))
     epsilon = np.ones(N_PARTICLES)
-    fit = Fit(experimental_map, voxel_size=[1, 1, 1])
+    fit = DensityMap(experimental_map, voxel_size=[1, 1, 1])
     fit.set_coordinates(coordinates, sigma, epsilon)
     return fit

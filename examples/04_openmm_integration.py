@@ -12,7 +12,7 @@ force's tabulated per-particle gradient is refreshed every few MD steps via
 
 import numpy as np
 
-from openfit import Fit
+from openfit import DensityMap
 
 
 def main(total_steps=200, update_every=50, seed=0):
@@ -23,10 +23,10 @@ def main(total_steps=200, update_every=50, seed=0):
     rng = np.random.default_rng(seed)
 
     # Synthetic target density from a known arrangement of particles.
-    target = Fit(np.zeros((20, 20, 20)), voxel_size=[1, 1, 1])
+    target = DensityMap(np.zeros((20, 20, 20)), voxel_size=[1, 1, 1])
     target.set_coordinates(rng.uniform(5, 15, size=(n, 3)), np.full((n, 3), 2.0), np.ones(n))
 
-    fit = Fit(target.simulation_map(), voxel_size=[1, 1, 1])
+    fit = DensityMap(target.simulation_map(), voxel_size=[1, 1, 1])
     fit.set_coordinates(rng.uniform(5, 15, size=(n, 3)), np.full((n, 3), 2.0), np.ones(n))
 
     # Minimal OpenMM system: n free particles in the map's periodic box.
@@ -47,11 +47,11 @@ def main(total_steps=200, update_every=50, seed=0):
     simulation.context.setPositions((fit.coordinates / 10.0) * unit.nanometer)  # A -> nm
 
     fit.update_force(simulation, k=3200)
-    cc_start = fit.corr_coef()
+    cc_start = fit.correlation()
     for _ in range(total_steps // update_every):
         simulation.step(update_every)
         fit.update_force(simulation, k=3200)
-    cc_end = fit.corr_coef()
+    cc_end = fit.correlation()
 
     return cc_start, cc_end
 
