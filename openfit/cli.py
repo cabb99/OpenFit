@@ -33,6 +33,7 @@ def _run(config):
     update_interval = int(config.get("update_interval", 50))
     sigma = float(config.get("sigma", 1.5))
     platform = config.get("platform")
+    rigid_search = config.get("rigid_search", False)
 
     if smog:
         gro, top, xml = smog
@@ -45,6 +46,7 @@ def _run(config):
             k=k,
             update_interval=update_interval,
             platform=platform or "CPU",
+            rigid_search=rigid_search,
         )
     else:
         fit = Fit.from_amber(
@@ -55,6 +57,7 @@ def _run(config):
             update_interval=update_interval,
             platform=platform,
             backend=config.get("backend", "python"),
+            rigid_search=rigid_search,
         )
 
     print(f"initial correlation: {fit.cc:.4f}", flush=True)
@@ -81,6 +84,7 @@ def cmd_refine(args):
         "platform": args.platform,
         "backend": args.backend,
         "minimize": args.minimize,
+        "rigid_search": args.rigid_search,
     }
     return _run(config)
 
@@ -116,6 +120,9 @@ def build_parser():
     refine.add_argument("--platform", default=None, help="OpenMM platform (CUDA/OpenCL/CPU/Reference)")
     refine.add_argument("--backend", default="python", choices=["python", "native"], help="force backend")
     refine.add_argument("--minimize", action="store_true", help="energy-minimize before the run")
+    refine.add_argument(
+        "--rigid-search", action="store_true", help="rigid-body dock (orientation+translation scan) before refining"
+    )
     refine.set_defaults(func=cmd_refine)
 
     run = sub.add_parser("run", help="run a refinement from a YAML config file")

@@ -93,6 +93,7 @@ class Fit:
         k=3200,
         update_interval=50,
         backend="python",
+        rigid_search=False,
     ):
         """Build a :class:`Fit` from OpenMM pieces (bring-your-own forcefield).
 
@@ -122,6 +123,12 @@ class Fit:
             ``"python"`` (default) computes the gradient in Python and injects it
             via a tabulated force. ``"native"`` (a C++/CUDA OpenMM plugin) is
             planned for the performance phase and raises ``NotImplementedError``.
+        rigid_search : bool or dict, optional
+            Optional rigid-body pre-placement. Default ``False`` — the structure
+            is assumed to be **already aligned** to the map. Pass ``True`` to run
+            :meth:`dock` (a coarse orientation/translation scan) first, or a dict
+            of :meth:`~openfit.DensityMap.rigid_fit` keyword arguments
+            (e.g. ``{"n_rotations": 300}``).
         """
         import openmm
         from openmm import app, unit
@@ -150,7 +157,10 @@ class Fit:
             simulation = app.Simulation(topology, system, integrator, platform_obj)
         simulation.context.setPositions(positions)
 
-        return cls(simulation, density, force, update_interval=update_interval, k=k)
+        fit = cls(simulation, density, force, update_interval=update_interval, k=k)
+        if rigid_search:
+            fit.dock(**(rigid_search if isinstance(rigid_search, dict) else {}))
+        return fit
 
     @classmethod
     def from_amber(
@@ -208,6 +218,7 @@ class Fit:
         name="openfit",
         k=3200,
         update_interval=50,
+        rigid_search=False,
     ):
         """Build a :class:`Fit` from an OpenSMOG structure-based model.
 
@@ -228,6 +239,11 @@ class Fit:
             atom names.
         platform : str, optional
             OpenSMOG platform (default ``"CPU"``).
+        rigid_search : bool or dict, optional
+            Optional rigid-body pre-placement. Default ``False`` — the structure
+            is assumed already aligned to the map. ``True`` runs :meth:`dock`
+            first; a dict passes keyword arguments to
+            :meth:`~openfit.DensityMap.rigid_fit`.
         """
         import openmm
         from OpenSMOG import SBM
@@ -270,7 +286,10 @@ class Fit:
         coords = np.array(state.getPositions().value_in_unit(openmm.unit.angstrom))
         density.set_coordinates(coords, widths, weights)
 
-        return cls(sbm.simulation, density, force, update_interval=update_interval, k=k)
+        fit = cls(sbm.simulation, density, force, update_interval=update_interval, k=k)
+        if rigid_search:
+            fit.dock(**(rigid_search if isinstance(rigid_search, dict) else {}))
+        return fit
 
     # --- driving ---------------------------------------------------------
 
@@ -281,6 +300,25 @@ class Fit:
         state = self.simulation.context.getState(getPositions=True)
         coords = np.array(state.getPositions().value_in_unit(openmm.unit.angstrom))
         self.density.set_coordinates(coords)
+
+    def dock(self, **rigid_kwargs):
+        """Rigid-body place the structure into the map before flexible fitting.
+
+        Runs :meth:`~openfit.DensityMap.rigid_fit` (an orientation + translation
+        scan) on the current structure and writes the best pose back into the
+        simulation. Keyword arguments are forwarded to ``rigid_fit`` (e.g.
+        ``n_rotations``, ``n_translations``). Assumes the structure fits inside
+        the map box. Returns the ``rigid_fit`` result dict.
+        """
+        import openmm
+
+        self._sync_coordinates()
+        result = self.density.rigid_fit(**rigid_kwargs)
+        # internal frame -> world (Angstrom) -> nm
+        world = self.density.coordinates + self.density.origin - self.density.voxel_size / 2
+        self.simulation.context.setPositions((world / 10.0) * openmm.unit.nanometer)
+        self.force.update(self.simulation.context)
+        return result
 
     @property
     def cc(self):

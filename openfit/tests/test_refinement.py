@@ -43,6 +43,26 @@ def test_from_system_refines_and_reports_cc():
     assert np.isfinite(fit.cc)
 
 
+def test_dock_runs_and_keeps_finite_cc():
+    topology, system, positions, density = _tiny_system()
+    fit = Fit.from_system(topology, system, positions, density)
+    result = fit.dock(n_rotations=12, n_seeds=2, refine_iters=20, seed=0)
+    assert set(result) == {"coordinates", "rotation", "translation", "cc"}
+    assert np.isfinite(fit.cc)
+
+
+def test_rigid_search_opt_in_on_builder():
+    topology, system, positions, density = _tiny_system()
+    fit = Fit.from_system(
+        topology,
+        system,
+        positions,
+        density,
+        rigid_search={"n_rotations": 12, "n_seeds": 2, "refine_iters": 20, "seed": 0},
+    )
+    assert np.isfinite(fit.cc)
+
+
 def test_native_backend_not_implemented():
     topology, system, positions, density = _tiny_system()
     with pytest.raises(NotImplementedError):

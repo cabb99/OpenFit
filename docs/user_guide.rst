@@ -44,6 +44,31 @@ Other constructors:
 Pass ``backend="python"`` (default); ``backend="native"`` (a C++/CUDA OpenMM
 plugin) is reserved for the performance phase.
 
+Rigid-body placement (optional)
+--------------------------------
+
+By default OpenFit assumes the structure is already aligned to the map. 
+Because flexible fitting refines only locally, the structure should start roughly inside the density.
+If it does not, ``Fit`` can optionally run a rigid-body search first (``rigid_search=...``) and begin the
+refinement from the best placement. The search has two stages: a coarse scan over evenly
+spaced orientations centered on the map's density-weighted centroid, 
+followed by a **local refinement** (small random rotation + translation hill-climb) of the best few poses:
+
+.. code-block:: python
+
+    fit = Fit.from_smog(..., rigid_search=True)          # dock, then refine
+    fit = Fit.from_smog(..., rigid_search={"n_rotations": 300, "refine_iters": 200})
+
+    fit.dock(n_rotations=300)                            # or dock explicitly, later
+    fit.refine(steps=50_000)
+
+The same search is available on a bare engine via
+:meth:`~openfit.DensityMap.rigid_fit`, which returns the best pose
+(``{"coordinates", "rotation", "translation", "cc"}``) and leaves the structure
+there. With even sampling (``n_rotations=300``) it recovers asymmetric structures
+to ~1 Å; it is a coarse global pre-placement and assumes the structure fits
+inside the map box.
+
 The ``DensityMap`` engine
 -------------------------
 

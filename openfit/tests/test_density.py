@@ -103,6 +103,50 @@ def test_correlation_in_range(small_fit):
     assert -1.0 <= cc <= 1.0
 
 
+# --- rigid-body search ---------------------------------------------------
+
+
+def test_rigid_fit_improves_from_scrambled_pose():
+    """rigid_fit recovers a better placement of a rotated/displaced structure."""
+    from scipy.spatial.transform import Rotation
+
+    rng = np.random.default_rng(0)
+    n = 8
+    coords = rng.uniform(12, 28, size=(n, 3))
+    sigma = np.full((n, 3), 2.0)
+    eps = np.ones(n)
+
+    target = DensityMap(np.zeros((40, 40, 40)), voxel_size=[1, 1, 1])
+    target.set_coordinates(coords, sigma, eps)
+    gt_internal = target.coordinates.copy()  # ground-truth pose in the internal frame
+    dm = DensityMap(target.simulation_map(), voxel_size=[1, 1, 1])
+
+    rot = Rotation.random(random_state=1).as_matrix()
+    centroid = coords.mean(0)
+    scrambled = (coords - centroid) @ rot.T + centroid + np.array([5.0, -4.0, 3.0])
+    dm.set_coordinates(scrambled, sigma, eps)
+    before = dm.correlation()
+
+    # n_rotations=300 (600-cell) is deterministic; seed fixes the refinement.
+    best = dm.rigid_fit(n_rotations=300, n_seeds=5, refine_iters=150, seed=0)
+    assert set(best) == {"coordinates", "rotation", "translation", "cc"}
+    assert best["coordinates"].shape == (n, 3)
+    assert best["rotation"].shape == (3, 3)
+    assert best["cc"] > before
+    assert best["cc"] > 0.95  # coarse scan + local refinement recovers the pose
+
+    # the engine is left at the best pose, and it matches the ground truth closely
+    assert dm.correlation() == pytest.approx(best["cc"], abs=1e-6)
+    rmsd = np.sqrt(((best["coordinates"] - gt_internal) ** 2).sum(1).mean())
+    assert rmsd < 2.0
+
+
+def test_rigid_fit_requires_coordinates():
+    dm = DensityMap(np.zeros((10, 10, 10)), voxel_size=[1, 1, 1])
+    with pytest.raises(RuntimeError):
+        dm.rigid_fit()
+
+
 # --- fit() optimization loop ---------------------------------------------
 
 

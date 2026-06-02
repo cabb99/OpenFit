@@ -556,6 +556,133 @@ class DensityMap:
             cc = new_cc
         return {"correlation": cc, "n_iter": i + 1, "converged": converged, "history": np.asarray(history)}
 
+    def _map_centroid(self):
+        """Density-weighted centroid of the experimental map, in the internal frame."""
+        weights = self.experimental_map - self.experimental_map.min()  # (z, y, x), >= 0
+        total = weights.sum()
+        if total == 0:
+            return self.n_voxels * self.voxel_size / 2  # uniform map: geometric centre
+        # Marginal sums per axis (map is z, y, x); voxel i spans [i, i+1)*voxel_size.
+        marg_x = weights.sum(axis=(0, 1))
+        marg_y = weights.sum(axis=(0, 2))
+        marg_z = weights.sum(axis=(1, 2))
+        cx = (marg_x * (np.arange(self.n_voxels[0]) + 0.5)).sum() / total * self.voxel_size[0]
+        cy = (marg_y * (np.arange(self.n_voxels[1]) + 0.5)).sum() / total * self.voxel_size[1]
+        cz = (marg_z * (np.arange(self.n_voxels[2]) + 0.5)).sum() / total * self.voxel_size[2]
+        return np.array([cx, cy, cz], dtype=self.dtype)
+
+    def rigid_fit(
+        self,
+        n_rotations=300,
+        n_translations=1,
+        translation_step=None,
+        n_seeds=5,
+        refine_iters=200,
+        optimize=0,
+        seed=None,
+    ):
+        """Rigid-body search for the best placement of the current structure.
+
+        Two stages: (1) a *coarse* scan over evenly spaced orientations from
+        :func:`~openfit.generate_rotations` (4-polytope vertices) combined with a
+        translation grid centred on the experimental map's density-weighted
+        centroid; (2) a local *refinement* (small random rotation + translation
+        hill-climb) of the best ``n_seeds`` coarse poses. The structure is left at
+        the best pose. Requires :meth:`set_coordinates` to have been called.
+
+        For an even orientation scan use a polytope count for ``n_rotations``
+        (``4, 5, 8, 12, 60, 300``); other values fall back to random orientations.
+
+        Parameters
+        ----------
+        n_rotations : int, optional
+            Orientations in the coarse scan (default 300, the 600-cell).
+        n_translations : int, optional
+            Grid points per axis around the map centroid (``n_translations**3``
+            shifts). ``1`` (default) means centroid placement only — usually
+            enough, since the centroid targeting fixes the translation.
+        translation_step : float, optional
+            Coarse translation-grid spacing in Angstrom (default: largest voxel
+            edge).
+        n_seeds : int, optional
+            How many of the best coarse poses to locally refine (default 5).
+        refine_iters : int, optional
+            Hill-climb iterations per seed (default 200). ``0`` disables the
+            refinement stage (coarse scan only).
+        optimize : int, optional
+            Passed to ``generate_rotations`` for non-polytope ``n_rotations``.
+        seed : int, optional
+            Seed for the refinement's random perturbations (reproducibility).
+
+        Returns
+        -------
+        dict
+            ``{"coordinates", "rotation", "translation", "cc"}`` for the best
+            pose. ``coordinates`` is in the same internal frame as
+            :attr:`coordinates`; ``rotation`` is a 3x3 matrix and ``translation``
+            the applied shift.
+        """
+        from scipy.spatial.transform import Rotation
+
+        from .polytopes import generate_rotations
+
+        if self.coordinates is None:
+            raise RuntimeError("call set_coordinates() before rigid_fit().")
+        if translation_step is None:
+            translation_step = float(self.voxel_size.max())
+
+        # Work in the internal frame (self.coordinates is already shifted into it);
+        # assigning self.coordinates avoids re-applying the origin shift. Poses are
+        # parameterized as: centered structure -> rotate -> move centroid to
+        # (target + translation).
+        box = self.voxel_size * self.n_voxels
+        centroid0 = self.coordinates.mean(axis=0)
+        centered = self.coordinates - centroid0
+        target = self._map_centroid()
+        rng = np.random.default_rng(seed)
+
+        def score(rotation, translation):
+            self.coordinates = np.mod(centered @ rotation.T + target + translation, box)
+            return self.correlation()
+
+        offsets = (np.arange(n_translations) - (n_translations - 1) / 2) * translation_step
+        grid = [np.array([ox, oy, oz]) for ox in offsets for oy in offsets for oz in offsets]
+
+        # Stage 1: coarse scan, keeping the best n_seeds (rotation, translation).
+        candidates = []
+        for rotation in generate_rotations(n_rotations, optimize=optimize).as_matrix():
+            for offset in grid:
+                candidates.append((score(rotation, offset), rotation, offset))
+        candidates.sort(key=lambda c: -c[0])
+        seeds = candidates[: max(1, n_seeds)]
+
+        # Stage 2: local hill-climb refinement (small random rotation + shift) of
+        # each seed; keep the global best.
+        best_r, best_t, best_cc = seeds[0][1], seeds[0][2], seeds[0][0]
+        for cc0, rotation, translation in seeds:
+            r, t, cc = rotation, translation, cc0
+            angle, step = 20.0, translation_step * 3
+            for i in range(refine_iters):
+                trial_r = Rotation.from_rotvec(rng.normal(size=3) * np.deg2rad(angle)).as_matrix() @ r
+                trial_t = t + rng.normal(size=3) * step
+                trial_cc = score(trial_r, trial_t)
+                if trial_cc > cc:
+                    r, t, cc = trial_r, trial_t, trial_cc
+                if i % 50 == 49:
+                    angle *= 0.6
+                    step *= 0.6
+            if cc > best_cc:
+                best_r, best_t, best_cc = r, t, cc
+
+        best_cc = score(best_r, best_t)  # leave the structure at the best pose
+        logging.info("rigid_fit: best cc = %.4f", best_cc)
+        return {
+            "coordinates": self.coordinates.copy(),
+            "rotation": best_r,
+            "translation": (target + best_t) - centroid0,
+            "cc": best_cc,
+        }
+
     def dsim_map_numerical(self, delta=1e-5):
         num_particles = self.coordinates.shape[0]
         sim_map_shape = self.simulation_map().shape

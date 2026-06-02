@@ -13,3 +13,4 @@ k: 3200
 update_interval: 100
 sigma: 1.5
 platform: CPU
+# rigid_search: true   # optional: rotation/translation dock before refining
