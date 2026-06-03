@@ -32,12 +32,23 @@ Other constructors:
 
 .. code-block:: python
 
-    # All-atom MM from a (clean) PDB, Amber14 + implicit solvent (experimental)
-    fit = Fit.from_amber("model.pdb", "target.mrc")
+    # All-atom MM from a (clean) PDB
+    fit = Fit.from_amber("model.pdb", "target.mrc")        # Amber14 + implicit solvent
+    fit = Fit.from_charmm("model.pdb", "target.mrc")       # CHARMM36 (bundled with OpenMM)
+
+    # Generate a SMOG structure-based model from a PDB/CIF with SMOG 2 (external tool)
+    fit = Fit.from_smog_structure("model.pdb", "target.mrc", model="AA")
+
+    # Coarse-grained OpenAWSEM model (needs the `awsem` extra)
+    fit = Fit.from_awsem("model.pdb", "target.mrc", chains="A")
 
     # Bring your own OpenMM system/topology/positions
     fit = Fit.from_system(topology, system, positions, "target.mrc",
                           platform="CUDA", k=3200, update_interval=50)
+
+``from_amber``/``from_charmm`` are all-atom and assume a clean structure;
+``from_smog_structure`` needs SMOG 2 installed (https://smog-server.org);
+``from_awsem`` is coarse-grained (Cα/Cβ/O beads) and needs ``openawsem``.
 
 :meth:`~openfit.Fit.refine` returns ``{"correlation", "steps", "history"}``;
 :attr:`~openfit.Fit.cc` recomputes the correlation from the current positions.

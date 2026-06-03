@@ -38,6 +38,81 @@ def _select_platform(name):
     return openmm.Platform.getPlatformByName(name)
 
 
+def _load_structure(path):
+    """Parse a ``.pdb`` or ``.cif``/``.pdbx`` structure into (topology, positions)."""
+    from openmm import app
+
+    text = str(path)
+    if text.lower().endswith((".cif", ".pdbx")):
+        structure = app.PDBxFile(text)
+    else:
+        structure = app.PDBFile(text)
+    return structure.topology, structure.positions
+
+
+_SMOG_FLAGS = {"AA": "-AA", "CA": "-CA", "AAgaussian": "-AAgaussian", "CAgaussian": "-CAgaussian"}
+
+
+def _generate_smog_model(structure, model, workdir, smog2, smog_adjustpdb):
+    """Run SMOG 2 to build an OpenSMOG model from a structure.
+
+    Returns ``(gro, top, xml)`` paths in ``workdir``. ``structure`` must be a
+    SMOG-compatible PDB (heavy-atom protein, ATOM records); CIF inputs are first
+    converted to PDB. Raises ``RuntimeError`` with the tool output on failure.
+    """
+    import os
+    import shutil
+    import subprocess
+
+    if model not in _SMOG_FLAGS:
+        raise ValueError(f"unknown SMOG model {model!r}; expected one of {sorted(_SMOG_FLAGS)}")
+    adjust_exe = shutil.which(smog_adjustpdb) or (smog_adjustpdb if os.path.exists(smog_adjustpdb) else None)
+    smog2_exe = shutil.which(smog2) or (smog2 if os.path.exists(smog2) else None)
+    if adjust_exe is None or smog2_exe is None:
+        raise RuntimeError(
+            "SMOG 2 tools not found. Install SMOG 2 (https://smog-server.org) and put "
+            f"'{smog_adjustpdb}'/'{smog2}' on PATH, or pass explicit paths."
+        )
+
+    # Absolute path: the SMOG subprocesses run with cwd=workdir.
+    structure = os.path.abspath(str(structure))
+    # CIF -> PDB (SMOG tools read PDB); plain PDBs are passed through unchanged.
+    if structure.lower().endswith((".cif", ".pdbx")):
+        from openmm.app import PDBFile
+
+        topology, positions = _load_structure(structure)
+        structure = os.path.join(workdir, "input.pdb")
+        with open(structure, "w") as handle:
+            PDBFile.writeFile(topology, positions, handle)
+
+    adjusted = os.path.join(workdir, "adjusted.pdb")
+    base = os.path.join(workdir, "model")
+    try:
+        subprocess.run(
+            [adjust_exe, "-i", structure, "-o", adjusted], cwd=workdir, check=True, capture_output=True, text=True
+        )
+        subprocess.run(
+            [
+                smog2_exe,
+                "-i",
+                adjusted,
+                _SMOG_FLAGS[model],
+                "-OpenSMOG",
+                "-dname",
+                base,
+                "-OpenSMOGxml",
+                base + ".xml",
+            ],
+            cwd=workdir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"SMOG 2 generation failed:\n{exc.stdout}\n{exc.stderr}") from exc
+    return base + ".gro", base + ".top", base + ".xml"
+
+
 class Fit:
     """Flexibly fit a structure into a density map with an OpenMM simulation.
 
@@ -201,6 +276,56 @@ class Fit:
         return cls.from_system(modeller.topology, system, modeller.positions, density, **kwargs)
 
     @classmethod
+    def from_charmm(
+        cls,
+        structure,
+        density,
+        *,
+        forcefield=("charmm36.xml", "charmm36/water.xml"),
+        sigma=2.0,
+        add_hydrogens=True,
+        **kwargs,
+    ):
+        """Build a :class:`Fit` for a CHARMM36 all-atom model from a PDB/CIF (experimental).
+
+        Uses OpenMM's bundled CHARMM36 force field via ``openmm.app.ForceField``,
+        assuming a clean structure. Per-atom weights default to the atomic
+        masses. Remaining keyword arguments are passed to :meth:`from_system`.
+
+        Parameters
+        ----------
+        structure : str or path-like
+            Input ``.pdb`` or ``.cif`` structure.
+        density : DensityMap or str or numpy.ndarray
+            Target density (or MRC path / array).
+        forcefield : tuple of str, optional
+            ForceField XML files (default CHARMM36 protein + water).
+        sigma : float, optional
+            Gaussian width in Angstrom (default 2.0).
+        add_hydrogens : bool, optional
+            Add missing hydrogens with ``Modeller`` (default True).
+        """
+        from openmm import app, unit
+
+        topology, positions = _load_structure(structure)
+        forcefield_obj = app.ForceField(*forcefield)
+        modeller = app.Modeller(topology, positions)
+        if add_hydrogens:
+            modeller.addHydrogens(forcefield_obj)
+        system = forcefield_obj.createSystem(
+            modeller.topology, nonbondedMethod=app.CutoffNonPeriodic, constraints=app.HBonds
+        )
+
+        density = _as_density(density)
+        coords = np.array(modeller.positions.value_in_unit(unit.angstrom))
+        masses = np.array(
+            [system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(system.getNumParticles())]
+        )
+        density.set_coordinates(coords, np.full((len(coords), 3), sigma), masses)
+
+        return cls.from_system(modeller.topology, system, modeller.positions, density, **kwargs)
+
+    @classmethod
     def from_smog(
         cls,
         gro,
@@ -291,6 +416,125 @@ class Fit:
             fit.dock(**(rigid_search if isinstance(rigid_search, dict) else {}))
         return fit
 
+    @classmethod
+    def from_smog_structure(
+        cls,
+        structure,
+        density,
+        *,
+        model="AA",
+        smog2="smog2",
+        smog_adjustpdb="smog_adjustPDB",
+        **kwargs,
+    ):
+        """Build a :class:`Fit` by generating a SMOG model from a structure.
+
+        Runs SMOG 2 (``smog_adjustPDB`` + ``smog2 ... -OpenSMOG``) on ``structure``
+        to produce the ``.gro``/``.top``/``.xml`` model, then delegates to
+        :meth:`from_smog`. SMOG 2 must be installed (external tool); the input
+        must be a SMOG-compatible heavy-atom protein PDB/CIF.
+
+        Parameters
+        ----------
+        structure : str or path-like
+            Input ``.pdb`` or ``.cif`` (a cleaned, single-conformer protein).
+        density : DensityMap or str or numpy.ndarray
+            Target density (or MRC path / array).
+        model : {"AA", "CA", "AAgaussian", "CAgaussian"}, optional
+            SMOG model type (default all-atom).
+        smog2, smog_adjustpdb : str, optional
+            Names/paths of the SMOG 2 executables (resolved from PATH).
+        **kwargs
+            Passed to :meth:`from_smog` (e.g. ``k``, ``update_interval``,
+            ``platform``, ``rigid_search``).
+        """
+        import tempfile
+
+        workdir = tempfile.mkdtemp(prefix="openfit_smog_")
+        gro, top, xml = _generate_smog_model(structure, model, workdir, smog2, smog_adjustpdb)
+        return cls.from_smog(gro, top, xml, density, **kwargs)
+
+    @classmethod
+    def from_awsem(cls, structure, density, *, chains="A", k_awsem=1.0, sigma=3.0, force_setup=None, **kwargs):
+        """Build a :class:`Fit` for an OpenAWSEM coarse-grained model (experimental).
+
+        Builds a Cα/Cβ/O coarse-grained AWSEM system from a PDB/CIF via
+        `OpenAWSEM <https://github.com/npschafer/openawsem>`_. By default a
+        minimal, auxiliary-file-free force set is used (backbone + contact terms;
+        the fragment-memory, Debye-Hückel and secondary-structure-weight terms,
+        which need generated input files, are omitted). Requires ``openawsem``.
+
+        Parameters
+        ----------
+        structure : str or path-like
+            Input ``.pdb`` or ``.cif``.
+        density : DensityMap or str or numpy.ndarray
+            Target density (or MRC path / array).
+        chains : str, optional
+            Chain id(s) to simulate (default ``"A"``).
+        k_awsem : float, optional
+            Overall AWSEM energy scale (default 1.0).
+        sigma : float, optional
+            Gaussian width for the CG beads in Angstrom (default 3.0).
+        force_setup : callable, optional
+            ``oa -> list`` returning the AWSEM force terms for an
+            ``OpenMMAWSEMSystem``; overrides the default minimal set (e.g. pass
+            ``openawsem.scripts.forces_setup.set_up_forces`` with its input files).
+        **kwargs
+            Passed to :meth:`from_system`.
+        """
+        import os
+        import shutil
+        import tempfile
+
+        import numpy as np
+        from openmm import unit
+
+        import openawsem
+        from openawsem import OpenMMAWSEMSystem, prepare_pdb
+        from openawsem.functionTerms import basicTerms, contactTerms
+
+        structure = os.path.abspath(str(structure))
+        workdir = tempfile.mkdtemp(prefix="openfit_awsem_")
+        cwd = os.getcwd()
+        try:
+            os.chdir(workdir)
+            local_pdb = "structure.pdb"
+            if structure.lower().endswith((".cif", ".pdbx")):
+                from openmm.app import PDBFile
+
+                topology, positions = _load_structure(structure)
+                with open(local_pdb, "w") as handle:
+                    PDBFile.writeFile(topology, positions, handle)
+            else:
+                shutil.copy(structure, local_pdb)
+
+            prepare_pdb(local_pdb, chains)
+            oa = OpenMMAWSEMSystem(
+                "structure-openmmawsem.pdb", chains=chains, k_awsem=k_awsem, xml_filename=openawsem.xml
+            )
+            if force_setup is None:
+                forces = [
+                    basicTerms.con_term(oa),
+                    basicTerms.chain_term(oa),
+                    basicTerms.chi_term(oa),
+                    basicTerms.excl_term(oa, periodic=False),
+                    basicTerms.rama_term(oa),
+                    basicTerms.rama_proline_term(oa),
+                    contactTerms.contact_term(oa),
+                ]
+            else:
+                forces = force_setup(oa)
+            oa.addForcesWithDefaultForceGroup(forces)
+            topology, system, positions = oa.pdb.topology, oa.system, oa.pdb.positions
+        finally:
+            os.chdir(cwd)
+
+        density = _as_density(density)
+        coords = np.array(positions.value_in_unit(unit.angstrom))
+        density.set_coordinates(coords, np.full((len(coords), 3), sigma), np.ones(len(coords)))
+        return cls.from_system(topology, system, positions, density, **kwargs)
+
     # --- driving ---------------------------------------------------------
 
     def _sync_coordinates(self):
@@ -331,7 +575,7 @@ class Fit:
         self.simulation.minimizeEnergy(maxIterations=max_iterations)
         return self.cc
 
-    def refine(self, steps, minimize=False, record_interval=None):
+    def refine(self, steps, minimize=False, record_interval=None, trajectory=None, trajectory_interval=1000):
         """Run the flexible fit, returning the correlation history.
 
         Parameters
@@ -344,6 +588,10 @@ class Fit:
         record_interval : int, optional
             Record the correlation every this many steps (default: once at the
             end).
+        trajectory : str or path-like, optional
+            If given, write the trajectory to this ``.dcd`` file during the run.
+        trajectory_interval : int, optional
+            Steps between trajectory frames (default 1000).
 
         Returns
         -------
@@ -352,14 +600,27 @@ class Fit:
         """
         if minimize:
             self.minimize()
+
+        reporter = None
+        if trajectory is not None:
+            from openmm import app
+
+            reporter = app.DCDReporter(str(trajectory), trajectory_interval)
+            self.simulation.reporters.append(reporter)
+
         record_interval = record_interval or steps
         history = []
         done = 0
-        while done < steps:
-            chunk = min(record_interval, steps - done)
-            self.simulation.step(chunk)
-            done += chunk
-            history.append(self.cc)
+        try:
+            while done < steps:
+                chunk = min(record_interval, steps - done)
+                self.simulation.step(chunk)
+                done += chunk
+                history.append(self.cc)
+        finally:
+            if reporter is not None:
+                self.simulation.reporters.remove(reporter)
+                reporter._out.close()
         return {
             "correlation": history[-1] if history else self.cc,
             "steps": steps,

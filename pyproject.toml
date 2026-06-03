@@ -66,7 +66,15 @@ viz = [
 cli = [
   "pyyaml",
 ]
-# Everything needed for the full feature set.
+# Structure-based-model integration (Fit.from_smog / from_smog_structure).
+smog = [
+  "OpenSMOG",
+]
+# OpenAWSEM coarse-grained force field (Fit.from_awsem).
+awsem = [
+  "openawsem @ git+https://github.com/cabb99/openawsem",
+]
+# Everything needed for the full feature set (awsem kept separate — heavy + git-only).
 all = [
   "openmm",
   "mrcfile",
@@ -74,6 +82,7 @@ all = [
   "molscene @ git+https://github.com/cabb99/molscene",
   "matplotlib",
   "pyyaml",
+  "OpenSMOG",
 ]
 test = [
   "pytest>=6.1.2",

@@ -39,6 +39,28 @@ def test_parser_run_subcommand():
     assert args.config == "config.yaml"
 
 
+def test_parser_new_sources():
+    p = build_parser()
+    assert p.parse_args(["refine", "--charmm", "m.pdb", "x.mrc", "-o", "o.pdb"]).charmm == "m.pdb"
+    assert p.parse_args(["refine", "--awsem", "m.pdb", "x.mrc", "-o", "o.pdb"]).awsem == "m.pdb"
+    args = p.parse_args(["refine", "--smog-structure", "m.pdb", "x.mrc", "-o", "o.pdb", "--smog-model", "CA"])
+    assert args.smog_structure == "m.pdb"
+    assert args.smog_model == "CA"
+
+
+def test_parser_new_sources_mutually_exclusive():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["refine", "--charmm", "a.pdb", "--awsem", "b.pdb", "m.mrc", "-o", "o.pdb"])
+
+
+def test_parser_trajectory():
+    args = build_parser().parse_args(
+        ["refine", "--pdb", "m.pdb", "x.mrc", "-o", "o.pdb", "--trajectory", "t.dcd", "--trajectory-interval", "500"]
+    )
+    assert args.trajectory == "t.dcd"
+    assert args.trajectory_interval == 500
+
+
 # --- end-to-end (need OpenSMOG + the 4ake data) --------------------------
 
 

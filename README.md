@@ -97,21 +97,25 @@ dm.save_mrc("structure_density.mrc")
 OpenFit installs an `openfit` command:
 
 ```bash
-# SMOG structure-based model
+# prebuilt SMOG structure-based model
 openfit refine --smog model.AA.gro model.AA.top model.AA.xml target.mrc \
     -o refined.pdb --steps 50000
 
-# all-atom PDB (Amber14 + implicit solvent)
-openfit refine --pdb model.pdb target.mrc -o refined.pdb
+# pick a force field from a single structure:
+openfit refine --pdb model.pdb target.mrc -o refined.pdb            # Amber14
+openfit refine --charmm model.pdb target.mrc -o refined.pdb         # CHARMM36
+openfit refine --awsem model.pdb target.mrc -o refined.pdb          # OpenAWSEM (coarse-grained)
+openfit refine --smog-structure model.pdb target.mrc -o refined.pdb # generate SMOG model (needs SMOG 2)
 
 # or drive it from a YAML config (needs the `cli` extra: pip install "openfit[cli]")
 openfit run config.yaml
 ```
 
-A config file mirrors the flags:
+The config file mirrors the flags:
 
 ```yaml
-smog: [model.AA.gro, model.AA.top, model.AA.xml]   # or: pdb: model.pdb
+smog: [model.AA.gro, model.AA.top, model.AA.xml]
+# or: pdb: model.pdb   |   charmm: model.pdb   |   awsem: model.pdb   |   smog_structure: model.pdb
 map: target.mrc
 output: refined.pdb
 output_map: fitted.mrc        # optional

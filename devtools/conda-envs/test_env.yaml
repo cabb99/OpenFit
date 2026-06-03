@@ -26,9 +26,12 @@ dependencies:
   - flake8
   - black
 
-    # Pip-only installs
-  # MolScene powers the PDB/Scene workflow. It is not on conda/PyPI yet, so it
-  # is installed from GitHub. Kept commented so CI stays green until MolScene's
-  # packaging is published/fixed; the matching tests skip when it is absent.
-  #- pip:
-  #  - git+https://github.com/cabb99/molscene
+    # OpenSMOG structure-based-model runtime (Fit.from_smog). The from_smog_structure
+    # generator additionally needs the external SMOG 2 tool, which is not installable here.
+  - pip:
+      - OpenSMOG
+    # MolScene (PDB/Scene workflow) and OpenAWSEM are kept commented: MolScene is
+    # not yet published, and OpenAWSEM is heavy + git-only (PyPI 1.1.1 breaks on
+    # Biopython >= 1.80). Their tests skip when absent.
+    #  - git+https://github.com/cabb99/molscene
+    #  - git+https://github.com/npschafer/openawsem
