@@ -63,6 +63,14 @@ def test_rigid_search_opt_in_on_builder():
     assert np.isfinite(fit.cc)
 
 
+def test_refine_writes_trajectory(tmp_path):
+    topology, system, positions, density = _tiny_system()
+    fit = Fit.from_system(topology, system, positions, density)
+    dcd = tmp_path / "traj.dcd"
+    fit.refine(steps=100, record_interval=50, trajectory=str(dcd), trajectory_interval=25)
+    assert dcd.exists() and dcd.stat().st_size > 0
+
+
 def test_native_backend_not_implemented():
     topology, system, positions, density = _tiny_system()
     with pytest.raises(NotImplementedError):
@@ -109,3 +117,47 @@ def test_from_smog_short_run():
     assert np.isfinite(cc0)
     assert np.isfinite(result["correlation"])
     assert result["history"].shape == (2,)
+
+
+# --- structure-based builders (CHARMM / SMOG-from-structure / OpenAWSEM) ---
+
+
+def test_from_charmm_builds_and_refines():
+    """from_charmm builds a CHARMM36 all-atom system and refines (finite cc)."""
+    pdb = EXAMPLES / "4ake" / "4ake.pdb"
+    mrc = EXAMPLES / "4ake" / "1AKE.mrc"
+    if not (pdb.exists() and mrc.exists()):
+        pytest.skip("missing 4ake inputs")
+    fit = Fit.from_charmm(str(pdb), str(mrc), update_interval=20)
+    assert fit.simulation.system.getNumParticles() > 0
+    result = fit.refine(steps=20, record_interval=10)
+    assert np.isfinite(result["correlation"])
+
+
+def test_from_smog_structure_generates_model():
+    """from_smog_structure generates a SMOG model via SMOG 2, then fits."""
+    import shutil
+
+    if shutil.which("smog2") is None or shutil.which("smog_adjustPDB") is None:
+        pytest.skip("SMOG 2 not on PATH")
+    atoms = EXAMPLES / "4ake" / "4ake.atoms.pdb"
+    mrc = EXAMPLES / "4ake" / "1AKE.mrc"
+    if not (atoms.exists() and mrc.exists()):
+        pytest.skip("missing 4ake.atoms.pdb / 1AKE.mrc")
+    fit = Fit.from_smog_structure(str(atoms), str(mrc), model="AA", update_interval=50)
+    result = fit.refine(steps=100, record_interval=50)
+    assert np.isfinite(fit.cc)
+    assert np.isfinite(result["correlation"])
+
+
+def test_from_awsem_builds_and_refines():
+    """from_awsem builds an OpenAWSEM CG system and refines (skips without openawsem)."""
+    pytest.importorskip("openawsem")
+    pdb = EXAMPLES / "4ake" / "4ake.pdb"
+    mrc = EXAMPLES / "4ake" / "1AKE.mrc"
+    if not (pdb.exists() and mrc.exists()):
+        pytest.skip("missing 4ake inputs")
+    fit = Fit.from_awsem(str(pdb), str(mrc), chains="A", update_interval=20)
+    assert fit.simulation.system.getNumParticles() > 0
+    result = fit.refine(steps=20, record_interval=10)
+    assert np.isfinite(result["correlation"])

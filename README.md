@@ -120,7 +120,7 @@ map: target.mrc
 output: refined.pdb
 output_map: fitted.mrc        # optional
 steps: 50000
-k: 3200
+k: 6400
 update_interval: 100
 ```
 

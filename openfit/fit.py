@@ -165,7 +165,7 @@ class Fit:
         *,
         integrator=None,
         platform=None,
-        k=3200,
+        k=6400,
         update_interval=50,
         backend="python",
         rigid_search=False,
@@ -341,7 +341,7 @@ class Fit:
         r_cutoff=1.2,
         platform="CPU",
         name="openfit",
-        k=3200,
+        k=6400,
         update_interval=50,
         rigid_search=False,
     ):

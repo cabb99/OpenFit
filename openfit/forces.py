@@ -26,10 +26,10 @@ class DensityForce:
     density_map : openfit.DensityMap
         The engine that computes the correlation gradient.
     k : float, optional
-        Force constant scaling the correlation gradient. Default 3200.
+        Force constant scaling the correlation gradient. Default 6400.
     """
 
-    def __init__(self, density_map, k=3200):
+    def __init__(self, density_map, k=6400):
         self.density = density_map
         self.k = k
         self._force = None

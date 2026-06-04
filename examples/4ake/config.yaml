@@ -9,7 +9,7 @@ output: refined.pdb        # fitted structure
 output_map: refined.mrc    # fitted density
 
 steps: 50000
-k: 3200
+k: 6400
 update_interval: 100
 sigma: 1.5
 platform: CPU

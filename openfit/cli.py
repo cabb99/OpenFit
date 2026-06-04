@@ -33,7 +33,7 @@ def _run(config):
     source, value = chosen[0]
 
     common = dict(
-        k=float(config.get("k", 3200)),
+        k=float(config.get("k", 6400)),
         update_interval=int(config.get("update_interval", 50)),
         platform=config.get("platform"),
         rigid_search=config.get("rigid_search", False),
@@ -128,7 +128,7 @@ def build_parser():
         "--smog-model", default="AA", choices=["AA", "CA", "AAgaussian", "CAgaussian"], help="SMOG model type"
     )
     refine.add_argument("--steps", type=int, default=50000, help="MD steps to run (default 50000)")
-    refine.add_argument("--k", type=float, default=3200, help="density force constant (default 3200)")
+    refine.add_argument("--k", type=float, default=6400, help="density force constant (default 6400)")
     refine.add_argument("--update-interval", type=int, default=50, help="steps between force refreshes")
     refine.add_argument("--sigma", type=float, default=None, help="Gaussian width in Angstrom (builder default)")
     refine.add_argument("--platform", default=None, help="OpenMM platform (CUDA/OpenCL/CPU/Reference)")

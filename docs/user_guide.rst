@@ -44,7 +44,7 @@ Other constructors:
 
     # Bring your own OpenMM system/topology/positions
     fit = Fit.from_system(topology, system, positions, "target.mrc",
-                          platform="CUDA", k=3200, update_interval=50)
+                          platform="CUDA", k=6400, update_interval=50)
 
 ``from_amber``/``from_charmm`` are all-atom and assume a clean structure;
 ``from_smog_structure`` needs SMOG 2 installed (https://smog-server.org);
@@ -136,7 +136,7 @@ function, and :class:`~openfit.DensityForceUpdater` refreshes it during MD:
 
     from openfit import DensityForce, DensityForceUpdater
 
-    force = DensityForce(dm, k=3200)
+    force = DensityForce(dm, k=6400)
     force.add_to(system)                 # before the Context is created
     # ... build simulation ...
     simulation.reporters.append(DensityForceUpdater(force, interval=50))
