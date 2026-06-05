@@ -33,6 +33,7 @@ class DensityForce:
         self.density = density_map
         self.k = k
         self._force = None
+        self.last_cc = None  # correlation from the most recent gradient pass (cheap to log)
 
     @property
     def force(self):
@@ -85,7 +86,8 @@ class DensityForce:
             raise RuntimeError("DensityForce.add_to(system) must be called before update().")
         if force_array is None:
             scale = self.k if k is None else k
-            force_array = scale * self.density.gradient()[:, :3]
+            grad, self.last_cc = self.density.force_gradient()
+            force_array = scale * grad
         table = self._force.getTabulatedFunction(0)
         params = table.getFunctionParameters()
         params[2] = force_array.T.ravel()
@@ -122,6 +124,11 @@ class DensityForceUpdater:
         self.density_force = density_force
         self.interval = int(interval)
         self.k = k
+
+    @property
+    def last_cc(self):
+        """Correlation coefficient from the most recent force refresh (None until first)."""
+        return self.density_force.last_cc
 
     def describeNextReport(self, simulation):
         steps = self.interval - simulation.currentStep % self.interval

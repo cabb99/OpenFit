@@ -34,6 +34,7 @@ def _run(config):
 
     common = dict(
         k=float(config.get("k", 6400)),
+        k_per_particle=(float(config["k_per_particle"]) if config.get("k_per_particle") is not None else None),
         update_interval=int(config.get("update_interval", 50)),
         platform=config.get("platform"),
         rigid_search=config.get("rigid_search", False),
@@ -85,6 +86,7 @@ def cmd_refine(args):
         "smog_model": args.smog_model,
         "steps": args.steps,
         "k": args.k,
+        "k_per_particle": args.k_per_particle,
         "update_interval": args.update_interval,
         "sigma": args.sigma,
         "platform": args.platform,
@@ -129,6 +131,12 @@ def build_parser():
     )
     refine.add_argument("--steps", type=int, default=50000, help="MD steps to run (default 50000)")
     refine.add_argument("--k", type=float, default=6400, help="density force constant (default 6400)")
+    refine.add_argument(
+        "--k-per-particle",
+        type=float,
+        default=None,
+        help="size-normalized force constant: k = k_per_particle * n_particles (overrides --k)",
+    )
     refine.add_argument("--update-interval", type=int, default=50, help="steps between force refreshes")
     refine.add_argument("--sigma", type=float, default=None, help="Gaussian width in Angstrom (builder default)")
     refine.add_argument("--platform", default=None, help="OpenMM platform (CUDA/OpenCL/CPU/Reference)")

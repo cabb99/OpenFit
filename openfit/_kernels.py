@@ -220,3 +220,115 @@ def dcorr_v3(coordinates, n_voxels, voxel_size, sigma, epsilon, experimental_map
 
     result = (num1 - num2) / den  # (n,7)
     return result
+
+
+@jit(nopython=True, parallel=True)
+def dcorr_force_cc(coordinates, n_voxels, voxel_size, sigma, epsilon, experimental_map, padding, multiplier):
+    """Positional (x, y, z) correlation gradient **and** the correlation coefficient, one pass.
+
+    A slimmed-down :func:`dcorr_v3` for the flexible-fitting hot path: it computes only the 3
+    derivatives the bias force needs (dropping the sigma/epsilon columns, ~halving the heavy
+    second loop) and returns the ``cc`` it evaluates internally — which :func:`dcorr_v3`
+    throws away — so the caller never needs a separate :func:`sim_map` rebuild to log the
+    correlation. Matches ``dcorr_v3(...)[:, :3]`` to within the parallel scatter's race floor.
+
+    Returns
+    -------
+    (numpy.ndarray, float)
+        The ``(n, 3)`` gradient of the correlation w.r.t. ``(x, y, z)`` and the correlation
+        coefficient ``cc``.
+    """
+    n_dim = coordinates.shape[0]
+    i_dim = n_voxels[0]
+    j_dim = n_voxels[1]
+    k_dim = n_voxels[2]
+
+    voxel_limits_x = np.arange(-padding, n_voxels[0] + 1 + padding) * voxel_size[0]
+    voxel_limits_y = np.arange(-padding, n_voxels[1] + 1 + padding) * voxel_size[1]
+    voxel_limits_z = np.arange(-padding, n_voxels[2] + 1 + padding) * voxel_size[2]
+
+    min_coords = coordinates - multiplier * sigma
+    max_coords = coordinates + multiplier * sigma
+
+    limits = np.zeros((coordinates.shape[0], 6), dtype=np.int64)
+    limits[:, 0] = np.searchsorted(voxel_limits_x, min_coords[:, 0]) - 1
+    limits[:, 1] = np.searchsorted(voxel_limits_x, max_coords[:, 0]) + 1
+    limits[:, 2] = np.searchsorted(voxel_limits_y, min_coords[:, 1]) - 1
+    limits[:, 3] = np.searchsorted(voxel_limits_y, max_coords[:, 1]) + 1
+    limits[:, 4] = np.searchsorted(voxel_limits_z, min_coords[:, 2]) - 1
+    limits[:, 5] = np.searchsorted(voxel_limits_z, max_coords[:, 2]) + 1
+
+    sigma = sigma * np.sqrt(2)
+    x_mu_sigma = np.zeros((n_dim, voxel_limits_x.shape[0]))
+    y_mu_sigma = np.zeros((n_dim, voxel_limits_y.shape[0]))
+    z_mu_sigma = np.zeros((n_dim, voxel_limits_z.shape[0]))
+    for n in prange(n_dim):
+        x_mu_sigma[n, :] = (voxel_limits_x - coordinates[n, 0]) / sigma[n, 0]
+        y_mu_sigma[n, :] = (voxel_limits_y - coordinates[n, 1]) / sigma[n, 1]
+        z_mu_sigma[n, :] = (voxel_limits_z - coordinates[n, 2]) / sigma[n, 2]
+
+    phix = (1 + numba_erf(x_mu_sigma)) / 2
+    phiy = (1 + numba_erf(y_mu_sigma)) / 2
+    phiz = (1 + numba_erf(z_mu_sigma)) / 2
+
+    dphix_dx = np.zeros((n_dim, voxel_limits_x.shape[0]))
+    dphiy_dy = np.zeros((n_dim, voxel_limits_y.shape[0]))
+    dphiz_dz = np.zeros((n_dim, voxel_limits_z.shape[0]))
+    for n in prange(n_dim):
+        dphix_dx[n, :] = -np.exp(-x_mu_sigma[n, :] ** 2) / np.sqrt(np.pi) / sigma[n, 0]
+        dphiy_dy[n, :] = -np.exp(-y_mu_sigma[n, :] ** 2) / np.sqrt(np.pi) / sigma[n, 1]
+        dphiz_dz[n, :] = -np.exp(-z_mu_sigma[n, :] ** 2) / np.sqrt(np.pi) / sigma[n, 2]
+
+    dphix = substract_and_fold(phix, padding)
+    dphiy = substract_and_fold(phiy, padding)
+    dphiz = substract_and_fold(phiz, padding)
+    ddphix_dx = substract_and_fold(dphix_dx, padding)
+    ddphiy_dy = substract_and_fold(dphiy_dy, padding)
+    ddphiz_dz = substract_and_fold(dphiz_dz, padding)
+
+    exp = experimental_map
+
+    sim = np.zeros((k_dim, j_dim, i_dim), dtype=np.float64)
+    for n in prange(n_dim):
+        eps_n = epsilon[n]
+        i_min, i_max, j_min, j_max, k_min, k_max = limits[n]
+        for k in range(k_min, k_max + 1):
+            k = (k - padding) % k_dim
+            for j in range(j_min, j_max + 1):
+                j = (j - padding) % j_dim
+                for i in range(i_min, i_max + 1):
+                    i = (i - padding) % i_dim
+                    sim[k, j, i] += eps_n * dphix[n, i] * dphiy[n, j] * dphiz[n, k]
+
+    sim_mean = np.mean(sim)
+    sim_std = np.std(sim)
+    sim = (sim - sim_mean) / sim_std
+    cc = np.mean(sim * exp)
+
+    num1 = np.zeros((n_dim, 3), dtype=np.float64)
+    num2 = np.zeros((n_dim, 3), dtype=np.float64)
+    for n in prange(n_dim):
+        eps_n = epsilon[n]
+        i_min, i_max, j_min, j_max, k_min, k_max = limits[n]
+        for k in range(k_min, k_max + 1):
+            k = (k - padding) % k_dim
+            for j in range(j_min, j_max + 1):
+                j = (j - padding) % j_dim
+                for i in range(i_min, i_max + 1):
+                    i = (i - padding) % i_dim
+                    exp_val = exp[k, j, i]
+                    sim_val = sim[k, j, i]
+                    gx = eps_n * ddphix_dx[n, i] * dphiy[n, j] * dphiz[n, k]
+                    gy = eps_n * dphix[n, i] * ddphiy_dy[n, j] * dphiz[n, k]
+                    gz = eps_n * dphix[n, i] * dphiy[n, j] * ddphiz_dz[n, k]
+                    num1[n, 0] += gx * exp_val
+                    num1[n, 1] += gy * exp_val
+                    num1[n, 2] += gz * exp_val
+                    num2[n, 0] += gx * sim_val
+                    num2[n, 1] += gy * sim_val
+                    num2[n, 2] += gz * sim_val
+
+    num2 *= cc
+    den = sim_std * i_dim * j_dim * k_dim
+    result = (num1 - num2) / den
+    return result, cc

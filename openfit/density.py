@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from scipy.special import erf
 
-from ._kernels import dcorr_v3, sim_map
+from ._kernels import dcorr_force_cc, dcorr_v3, sim_map
 
 
 class DensityMap:
@@ -800,6 +800,40 @@ class DensityMap:
                 "(GPU kernels arrive in the performance phase)."
             )
         return dcorr_v3(
+            self.coordinates,
+            self.n_voxels,
+            self.voxel_size,
+            self.sigma,
+            self.epsilon,
+            self.experimental_map,
+            self.padding,
+            5,
+        )
+
+    def force_gradient(self, device="cpu"):
+        """Positional correlation gradient and the correlation coefficient, in one pass.
+
+        Faster than ``gradient()[:, :3]`` followed by :meth:`correlation`: it computes only
+        the three ``(x, y, z)`` derivatives the biasing force uses and reuses the ``cc`` it
+        evaluates internally, so no separate :meth:`simulation_map` rebuild is needed. This
+        is the hot path used by :class:`~openfit.DensityForce` during flexible fitting.
+
+        Parameters
+        ----------
+        device : {"cpu"}, optional
+            Compute backend. Only the CPU Numba kernel is available today.
+
+        Returns
+        -------
+        (numpy.ndarray, float)
+            The ``(n, 3)`` coordinate gradient and the correlation coefficient.
+        """
+        if device != "cpu":
+            raise NotImplementedError(
+                f"device={device!r} is not available yet; only 'cpu' is supported "
+                "(GPU kernels arrive in the performance phase)."
+            )
+        return dcorr_force_cc(
             self.coordinates,
             self.n_voxels,
             self.voxel_size,

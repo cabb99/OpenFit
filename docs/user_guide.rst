@@ -47,7 +47,8 @@ Other constructors:
                           platform="CUDA", k=6400, update_interval=50)
 
 ``from_amber``/``from_charmm`` are all-atom and assume a clean structure;
-``from_smog_structure`` needs SMOG 2 installed (https://smog-server.org);
+``from_smog`` / ``from_smog_structure`` build on SMOG 2 / OpenSMOG [OpenSMOG]_
+(``from_smog_structure`` needs SMOG 2 installed, https://smog-server.org);
 ``from_awsem`` is coarse-grained (Cα/Cβ/O beads) and needs ``openawsem``.
 
 :meth:`~openfit.Fit.refine` returns ``{"correlation", "steps", "history"}``;
@@ -271,3 +272,78 @@ so, for example, the derivative of the simulated density with respect to
 :math:`\partial \Phi/\partial \mu` is negative). These are exactly what
 :meth:`~openfit.DensityMap.gradient` returns (columns ``0:3`` for coordinates,
 ``3:6`` for widths, ``6`` for the weight).
+
+Choosing the force constant
+---------------------------
+
+The bias :math:`V_{Fit} = k\,(1 - \text{c.c.})` is **intensive**: the
+cross-correlation is normalized, so :math:`V_{Fit}` is bounded by :math:`\sim k`
+no matter how many particles the system has. The force field energy
+:math:`V_{ff}`, by contrast, is **extensive** (a sum over bonds, angles, contacts
+and non-bonded pairs), so it grows with the particle count :math:`N`. Two
+consequences matter when picking ``k``:
+
+* **System size.** The single correlation gradient is shared over all
+  :math:`N` particles, so the *per-atom* bias force scales as
+  :math:`k\,|\nabla\,\text{c.c.}| \sim k/N`. To keep that per-atom pull — which
+  competes with the (intensive) per-atom force-field force — constant across
+  systems of different size, scale the constant with the system size. Pass
+  ``k_per_particle`` to any builder and OpenFit uses
+  :math:`k = k_\text{per particle} \cdot N` instead of the absolute ``k``:
+
+  .. code-block:: python
+
+      Fit.from_amber("model.pdb", "target.mrc", k_per_particle=12.6)  # k = 12.6 * N (kJ/mol)
+      Fit.from_amber("model.pdb", "target.mrc", k=6400)               # absolute (default)
+
+  The cryo-EM flexible-fitting literature uses exactly this size scaling: the
+  recommended biasing constant for cross-correlation refinement is
+  :math:`k = 3\,N_\text{atom}` **kcal/mol** — :math:`\alpha`-helices and
+  :math:`\beta`-strands begin to collapse beyond it ([JCIM2025]_, from 29 systems
+  at 3.0-6.8 Å). Converting to OpenFit's kJ/mol units that is
+  :math:`k_\text{per particle} \approx 12.6`, the recommended *ceiling*.
+
+* **Force-field energy scale.** Size is not the whole story. The *relative*
+  weight :math:`V_{Fit}/|V_{ff}|` is set mostly by the force field's intrinsic
+  energy scale, which is independent of :math:`N`. Structure-based (SMOG) models
+  sit near their energy minimum (tens-hundreds of kJ/mol), so at the default
+  ``k`` the bias can equal or exceed :math:`V_{ff}`; stiff all-atom models
+  (Amber, CHARMM) carry energies of tens of thousands of kJ/mol, so the same
+  bias is only a few percent. Size-normalization does not remove this axis — a
+  soft coarse-grained model (e.g. SMOG CA) overfits well below the
+  :math:`3\,N_\text{atom}` kcal/mol ceiling and wants a *smaller*
+  ``k_per_particle`` than an all-atom model. The most transferable recipe is to
+  choose ``k`` so that :math:`V_{Fit}` is a target *fraction* of :math:`|V_{ff}|`,
+  which can be calibrated with a single energy evaluation at setup.
+
+.. note::
+
+   Maximizing the correlation alone (as a raw ``k`` scan does) pushes toward
+   *over*-fitting: the cross-correlation keeps rising with ``k`` even as the
+   model strains. The literature constant [JCIM2025]_ is chosen against a
+   **structural** criterion (MolProbity, secondary-structure retention), not
+   correlation. On the 4AKE benchmark this is exactly what we see — the soft
+   SMOG CA model peaks then degrades once ``k`` exceeds roughly
+   :math:`3\,N_\text{atom}` kcal/mol, while the stiffer all-atom models stay
+   below that ceiling over the scanned range and keep improving.
+
+   Note that OpenFit's cross-correlation is **centered** (Pearson), whereas the
+   reference implementations [cryo_fit]_ use an **uncentered** correlation of the
+   same functional form, so :math:`k \approx 12.6\,N_\text{atom}` kJ/mol is a
+   calibrated starting ceiling rather than an exact transfer.
+
+References
+==========
+
+.. [JCIM2025] "An Empirical Biasing Force Constant to Minimize Overfitting in
+   Cryo-EM Flexible Fitting Refinement." *Journal of Chemical Information and
+   Modeling* (2025). https://doi.org/10.1021/acs.jcim.5c01424
+
+.. [cryo_fit] "cryo_fit: Democratization of Flexible Fitting for Cryo-EM."
+   https://pmc.ncbi.nlm.nih.gov/articles/PMC7112765/ — the MDfit-style
+   cross-correlation biasing potential. SMOG/MDfit:
+   https://smog-server.org/extension/MDfit.html
+
+.. [OpenSMOG] Oliveira, A. B.; Contessoto, V. G.; et al. "SMOG 2 and OpenSMOG:
+   Extending the limits of structure-based models." *Protein Science* **31**,
+   158-172 (2022). https://doi.org/10.1002/pro.4209

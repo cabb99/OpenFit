@@ -29,6 +29,21 @@ def _as_density(density):
     return DensityMap(np.asarray(density))
 
 
+def _resolve_k(k, k_per_particle, n_particles):
+    """Resolve the density force constant, optionally scaling it by system size.
+
+    The bias potential ``V_Fit = k * (1 - c.c.)`` is *intensive* (the correlation
+    is normalized), so its gradient is shared over all ``N`` particles and the
+    per-atom bias force scales as ``k / N``. To keep that per-atom pull — which
+    competes with the (intensive) per-atom force-field force — constant across
+    systems of different size, pass ``k_per_particle`` so that ``k = k_per_particle
+    * N``. When given, it takes precedence over ``k``.
+    """
+    if k_per_particle is not None:
+        return float(k_per_particle) * int(n_particles)
+    return k
+
+
 def _select_platform(name):
     """Return an OpenMM Platform by name, or None to let OpenMM choose."""
     if name is None:
@@ -166,6 +181,7 @@ class Fit:
         integrator=None,
         platform=None,
         k=6400,
+        k_per_particle=None,
         update_interval=50,
         backend="python",
         rigid_search=False,
@@ -191,7 +207,17 @@ class Fit:
         platform : str, optional
             OpenMM platform name (e.g. ``"CUDA"``); default lets OpenMM choose.
         k : float, optional
-            Density force constant.
+            Density force constant (absolute). Default 6400.
+        k_per_particle : float, optional
+            If given, use a *size-normalized* force constant ``k = k_per_particle
+            * n_particles`` instead of the absolute ``k`` (takes precedence). This
+            keeps the per-atom bias force constant across systems of different
+            size; see :func:`_resolve_k`. The cryo-EM flexible-fitting literature
+            recommends ``k = 3 * n_atom kcal/mol`` as the ceiling before secondary
+            structure collapses (*J. Chem. Inf. Model.* 2025,
+            doi:10.1021/acs.jcim.5c01424) — i.e. ``k_per_particle ≈ 12.6`` in
+            OpenFit's kJ/mol units. Soft coarse-grained models (SMOG CA) overfit
+            well below that.
         update_interval : int, optional
             Steps between force refreshes.
         backend : {"python", "native"}, optional
@@ -209,6 +235,7 @@ class Fit:
         from openmm import app, unit
 
         density = _as_density(density)
+        k = _resolve_k(k, k_per_particle, system.getNumParticles())
         system.setDefaultPeriodicBoxVectors(*[openmm.Vec3(*v) for v in density.periodic_vectors()])
 
         if backend == "python":
@@ -342,6 +369,7 @@ class Fit:
         platform="CPU",
         name="openfit",
         k=6400,
+        k_per_particle=None,
         update_interval=50,
         rigid_search=False,
     ):
@@ -364,6 +392,14 @@ class Fit:
             atom names.
         platform : str, optional
             OpenSMOG platform (default ``"CPU"``).
+        k : float, optional
+            Density force constant (absolute). Default 6400.
+        k_per_particle : float, optional
+            If given, size-normalize the force constant to ``k = k_per_particle *
+            n_particles`` (takes precedence over ``k``). See :func:`_resolve_k`.
+            Note: the soft coarse-grained SMOG CA model is already bias-dominated
+            at the default k, so it wants a *smaller* per-particle constant than
+            the all-atom models.
         rigid_search : bool or dict, optional
             Optional rigid-body pre-placement. Default ``False`` — the structure
             is assumed already aligned to the map. ``True`` runs :meth:`dock`
@@ -388,6 +424,7 @@ class Fit:
         sbm.loadSystem(Grofile=str(gro), Topfile=str(top), Xmlfile=str(xml))
 
         density = _as_density(density)
+        k = _resolve_k(k, k_per_particle, sbm.system.getNumParticles())
         sbm.system.setDefaultPeriodicBoxVectors(*[openmm.Vec3(*v) for v in density.periodic_vectors()])
         force = DensityForce(density, k=k)
         force.add_to(sbm.system)
@@ -570,6 +607,17 @@ class Fit:
         self._sync_coordinates()
         return self.density.correlation()
 
+    def _log_cc(self):
+        """Correlation for the refine history — cheap path.
+
+        Reuses the correlation the updater computed in the same pass as the force (every
+        ``update_interval`` steps) instead of a separate full
+        :meth:`~openfit.DensityMap.correlation` rebuild, which is the dominant in-loop cost.
+        Falls back to :attr:`cc` if the updater has not refreshed yet.
+        """
+        cached = self.force.last_cc
+        return self.cc if cached is None else cached
+
     def minimize(self, max_iterations=0):
         """Run OpenMM energy minimization. Returns the resulting correlation."""
         self.simulation.minimizeEnergy(maxIterations=max_iterations)
@@ -616,13 +664,13 @@ class Fit:
                 chunk = min(record_interval, steps - done)
                 self.simulation.step(chunk)
                 done += chunk
-                history.append(self.cc)
+                history.append(self._log_cc())
         finally:
             if reporter is not None:
                 self.simulation.reporters.remove(reporter)
                 reporter._out.close()
         return {
-            "correlation": history[-1] if history else self.cc,
+            "correlation": self.cc,  # true final correlation (one recompute, cheap)
             "steps": steps,
             "history": np.asarray(history),
         }

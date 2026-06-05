@@ -76,6 +76,19 @@ def test_gradient_v3_vs_numpy_sigma(small_fit):
     )
 
 
+def test_force_gradient_matches_full_gradient(small_fit):
+    """The fast force-only kernel matches dcorr_v3's coordinate gradient."""
+    grad3, _cc = small_fit.force_gradient()
+    assert grad3.shape == (small_fit.coordinates.shape[0], 3)
+    assert np.allclose(grad3, small_fit.gradient()[:, :3], atol=1e-7)
+
+
+def test_force_gradient_returns_correlation(small_fit):
+    """force_gradient's cached cc matches the standalone correlation()."""
+    _grad3, cc = small_fit.force_gradient()
+    assert cc == pytest.approx(small_fit.correlation(), abs=1e-6)
+
+
 # --- Correlation coefficient ---------------------------------------------
 
 
