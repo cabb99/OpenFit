@@ -89,6 +89,22 @@ def test_force_gradient_returns_correlation(small_fit):
     assert cc == pytest.approx(small_fit.correlation(), abs=1e-6)
 
 
+def test_force_gradient_cuda_matches_cpu():
+    """The on-device CUDA gradient matches the CPU kernel (skipped without a GPU)."""
+    from openfit._cuda_kernels import CUDA_AVAILABLE
+
+    if not CUDA_AVAILABLE:
+        pytest.skip("no CUDA GPU / numba.cuda available")
+    rng = np.random.default_rng(0)
+    dm = DensityMap(rng.random((40, 40, 40)), voxel_size=[2, 2, 2])
+    box = 80.0  # keep atoms away from the box edges (CUDA path truncates, CPU folds PBC)
+    dm.set_coordinates(rng.uniform(0.25 * box, 0.75 * box, (50, 3)), np.full((50, 3), 2.0), np.ones(50))
+    g_cpu, cc_cpu = dm.force_gradient(device="cpu")
+    g_gpu, cc_gpu = dm.force_gradient(device="cuda")
+    assert np.allclose(g_gpu, g_cpu, atol=1e-6)
+    assert cc_gpu == pytest.approx(cc_cpu, abs=1e-6)
+
+
 # --- Correlation coefficient ---------------------------------------------
 
 

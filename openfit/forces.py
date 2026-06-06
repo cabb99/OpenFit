@@ -29,9 +29,10 @@ class DensityForce:
         Force constant scaling the correlation gradient. Default 6400.
     """
 
-    def __init__(self, density_map, k=6400):
+    def __init__(self, density_map, k=6400, device="cpu"):
         self.density = density_map
         self.k = k
+        self.device = device  # gradient backend: "cpu" (Numba) or "cuda" (on-device GPU)
         self._force = None
         self.last_cc = None  # correlation from the most recent gradient pass (cheap to log)
 
@@ -86,7 +87,7 @@ class DensityForce:
             raise RuntimeError("DensityForce.add_to(system) must be called before update().")
         if force_array is None:
             scale = self.k if k is None else k
-            grad, self.last_cc = self.density.force_gradient()
+            grad, self.last_cc = self.density.force_gradient(device=self.device)
             force_array = scale * grad
         table = self._force.getTabulatedFunction(0)
         params = table.getFunctionParameters()

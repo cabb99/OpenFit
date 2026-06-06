@@ -73,6 +73,7 @@ class DensityMap:
         self.coordinates = None
         self.sigma = None
         self.epsilon = None
+        self._cuda_eval = None  # lazily built CUDA gradient evaluator (see force_gradient)
 
     @property
     def experimental_map(self):
@@ -820,29 +821,35 @@ class DensityMap:
 
         Parameters
         ----------
-        device : {"cpu"}, optional
-            Compute backend. Only the CPU Numba kernel is available today.
+        device : {"cpu", "cuda"}, optional
+            Compute backend. ``"cpu"`` uses the Numba kernel; ``"cuda"`` runs the whole
+            gradient on the GPU and requires a CUDA GPU with ``numba.cuda`` available. A
+            resident GPU evaluator is built lazily on the first ``"cuda"`` call and reused
+            (rebuilt automatically if the map/widths/size change).
 
         Returns
         -------
         (numpy.ndarray, float)
             The ``(n, 3)`` coordinate gradient and the correlation coefficient.
         """
-        if device != "cpu":
-            raise NotImplementedError(
-                f"device={device!r} is not available yet; only 'cpu' is supported "
-                "(GPU kernels arrive in the performance phase)."
+        if device == "cpu":
+            return dcorr_force_cc(
+                self.coordinates,
+                self.n_voxels,
+                self.voxel_size,
+                self.sigma,
+                self.epsilon,
+                self.experimental_map,
+                self.padding,
+                5,
             )
-        return dcorr_force_cc(
-            self.coordinates,
-            self.n_voxels,
-            self.voxel_size,
-            self.sigma,
-            self.epsilon,
-            self.experimental_map,
-            self.padding,
-            5,
-        )
+        if device == "cuda":
+            from ._cuda_kernels import CudaGradientEvaluator
+
+            if self._cuda_eval is None or not self._cuda_eval.matches(self):
+                self._cuda_eval = CudaGradientEvaluator(self)
+            return self._cuda_eval(self.coordinates)
+        raise NotImplementedError(f"device={device!r} is not supported; use 'cpu' or 'cuda'.")
 
     def test(self):
         assert np.allclose(self.simulation_map(), self.simulation_map_numpy(), atol=1e-5)

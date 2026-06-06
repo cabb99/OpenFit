@@ -184,6 +184,7 @@ class Fit:
         k_per_particle=None,
         update_interval=50,
         backend="python",
+        gradient_device="cpu",
         rigid_search=False,
     ):
         """Build a :class:`Fit` from OpenMM pieces (bring-your-own forcefield).
@@ -239,7 +240,7 @@ class Fit:
         system.setDefaultPeriodicBoxVectors(*[openmm.Vec3(*v) for v in density.periodic_vectors()])
 
         if backend == "python":
-            force = DensityForce(density, k=k)
+            force = DensityForce(density, k=k, device=gradient_device)
             force.add_to(system)
         elif backend == "native":
             raise NotImplementedError(
@@ -371,6 +372,7 @@ class Fit:
         k=6400,
         k_per_particle=None,
         update_interval=50,
+        gradient_device="cpu",
         rigid_search=False,
     ):
         """Build a :class:`Fit` from an OpenSMOG structure-based model.
@@ -426,7 +428,7 @@ class Fit:
         density = _as_density(density)
         k = _resolve_k(k, k_per_particle, sbm.system.getNumParticles())
         sbm.system.setDefaultPeriodicBoxVectors(*[openmm.Vec3(*v) for v in density.periodic_vectors()])
-        force = DensityForce(density, k=k)
+        force = DensityForce(density, k=k, device=gradient_device)
         force.add_to(sbm.system)
         for i, f in reversed(list(enumerate(sbm.system.getForces()))):
             if isinstance(f, openmm.CMMotionRemover):
@@ -612,7 +614,7 @@ class Fit:
 
         Reuses the correlation the updater computed in the same pass as the force (every
         ``update_interval`` steps) instead of a separate full
-        :meth:`~openfit.DensityMap.correlation` rebuild, which is the dominant in-loop cost.
+        :meth:`~openfit.DensityMap.correlation` rebuild.
         Falls back to :attr:`cc` if the updater has not refreshed yet.
         """
         cached = self.force.last_cc
